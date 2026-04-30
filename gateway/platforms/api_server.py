@@ -36,6 +36,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit, urlparse
 
 try:
     from aiohttp import web
@@ -402,11 +403,12 @@ if AIOHTTP_AVAILABLE:
         """Add CORS headers for explicitly allowed origins; handle OPTIONS preflight."""
         adapter = request.app.get("api_server_adapter")
         origin = request.headers.get("Origin", "")
+        host_header = request.headers.get("Host", "")
         cors_headers = None
         if adapter is not None:
-            if not adapter._origin_allowed(origin):
+            if not adapter._origin_allowed(origin, host_header):
                 return web.Response(status=403)
-            cors_headers = adapter._cors_headers_for_origin(origin)
+            cors_headers = adapter._cors_headers_for_origin(origin, host_header)
 
         if request.method == "OPTIONS":
             if cors_headers is None:
@@ -635,9 +637,33 @@ class APIServerAdapter(BasePlatformAdapter):
             pass
         return "hermes-agent"
 
-    def _cors_headers_for_origin(self, origin: str) -> Optional[Dict[str, str]]:
+    @staticmethod
+    def _origin_hostname_matches_request_host(origin: str, host_header: str) -> bool:
+        """True when ``Origin``'s hostname equals the request ``Host`` hostname.
+
+        Browsers send ``Origin`` with scheme and often port; reverse proxies may
+        forward ``Host`` without the port (nginx ``$host``).  Matching hostnames
+        covers the common case of an SPA and ``/v1`` on the same host without
+        listing every public URL in ``API_SERVER_CORS_ORIGINS``.
+        """
+        try:
+            p = urlparse(origin.strip())
+            origin_host = (p.hostname or "").lower()
+            if not origin_host or p.scheme not in ("http", "https"):
+                return False
+            raw = (host_header or "").strip()
+            if not raw:
+                return False
+            if "://" not in raw and not raw.startswith("//"):
+                raw = "//" + raw
+            req_host = (urlsplit(raw).hostname or "").lower()
+            return bool(req_host) and origin_host == req_host
+        except Exception:
+            return False
+
+    def _cors_headers_for_origin(self, origin: str, host_header: str = "") -> Optional[Dict[str, str]]:
         """Return CORS headers for an allowed browser origin."""
-        if not origin or not self._cors_origins:
+        if not origin:
             return None
 
         if "*" in self._cors_origins:
@@ -646,18 +672,28 @@ class APIServerAdapter(BasePlatformAdapter):
             headers["Access-Control-Max-Age"] = "600"
             return headers
 
-        if origin not in self._cors_origins:
-            return None
+        if self._cors_origins and origin in self._cors_origins:
+            headers = dict(_CORS_HEADERS)
+            headers["Access-Control-Allow-Origin"] = origin
+            headers["Vary"] = "Origin"
+            headers["Access-Control-Max-Age"] = "600"
+            return headers
 
-        headers = dict(_CORS_HEADERS)
-        headers["Access-Control-Allow-Origin"] = origin
-        headers["Vary"] = "Origin"
-        headers["Access-Control-Max-Age"] = "600"
-        return headers
+        if host_header and self._origin_hostname_matches_request_host(origin, host_header):
+            headers = dict(_CORS_HEADERS)
+            headers["Access-Control-Allow-Origin"] = origin
+            headers["Vary"] = "Origin"
+            headers["Access-Control-Max-Age"] = "600"
+            return headers
 
-    def _origin_allowed(self, origin: str) -> bool:
+        return None
+
+    def _origin_allowed(self, origin: str, host_header: str = "") -> bool:
         """Allow non-browser clients and explicitly configured browser origins."""
         if not origin:
+            return True
+
+        if host_header and self._origin_hostname_matches_request_host(origin, host_header):
             return True
 
         if not self._cors_origins:
@@ -1347,7 +1383,8 @@ class APIServerAdapter(BasePlatformAdapter):
         # CORS middleware can't inject headers into StreamResponse after
         # prepare() flushes them, so resolve CORS headers up front.
         origin = request.headers.get("Origin", "")
-        cors = self._cors_headers_for_origin(origin) if origin else None
+        host_header = request.headers.get("Host", "")
+        cors = self._cors_headers_for_origin(origin, host_header) if origin else None
         if cors:
             sse_headers.update(cors)
         if session_id:
@@ -1512,7 +1549,8 @@ class APIServerAdapter(BasePlatformAdapter):
             "X-Accel-Buffering": "no",
         }
         origin = request.headers.get("Origin", "")
-        cors = self._cors_headers_for_origin(origin) if origin else None
+        host_header = request.headers.get("Host", "")
+        cors = self._cors_headers_for_origin(origin, host_header) if origin else None
         if cors:
             sse_headers.update(cors)
         if session_id:

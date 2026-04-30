@@ -43,6 +43,10 @@ docker compose -f docker-compose.lingtan.yml --env-file .env up -d --build
 
 多为后端未监听：检查 `deploy/.env` 是否已设置 **`API_SERVER_KEY`**，以及 `lingtan-api` 容器日志是否出现 `Refusing to start: binding to 0.0.0.0 requires API_SERVER_KEY`。
 
+## 6b) 报 **403**（`/v1/auth/register` 等）
+
+多为 **CORS 中间件**拒绝：浏览器带 `Origin: http://公网IP:6121`，而 `API_SERVER_CORS_ORIGINS` 里只有 `http://localhost:…`。新版本在 **Origin 的主机名与请求 `Host` 一致**（经 nginx 反代到后端）时会自动放行；若仍 403，请把真实前端 Origin 写进 `API_SERVER_CORS_ORIGINS`，并确认 `docker logs lingtan-api` 里 API 已 `listening`。
+
 ## 7) 构建失败：`npm ERR! network aborted`
 
 `lingtan-backend` 使用 `deploy/Dockerfile.backend`，**不跑**仓库根目录 Dockerfile 里的 npm / Playwright。若仍在前端构建阶段失败，可在 `deploy/.env` 中设置：

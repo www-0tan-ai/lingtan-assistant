@@ -2162,6 +2162,18 @@ class TestCORS:
         adapter = _make_adapter(cors_origins=["http://localhost:3000"])
         assert adapter._cors_headers_for_origin("http://evil.example") is None
 
+    def test_origin_allowed_when_hostname_matches_host_header(self):
+        """SPA + API behind same nginx: Origin host matches Host (e.g. public IP)."""
+        adapter = _make_adapter(cors_origins=["http://localhost:8080"])
+        assert adapter._origin_allowed("http://203.0.113.5:6121", "203.0.113.5") is True
+        assert adapter._origin_allowed("http://203.0.113.5:6121", "203.0.113.5:6121") is True
+
+    def test_cors_headers_same_hostname_as_host_without_full_origin_in_allowlist(self):
+        adapter = _make_adapter(cors_origins=["http://localhost:8080"])
+        h = adapter._cors_headers_for_origin("http://203.0.113.5:6121", "203.0.113.5")
+        assert h is not None
+        assert h["Access-Control-Allow-Origin"] == "http://203.0.113.5:6121"
+
     @pytest.mark.asyncio
     async def test_cors_headers_not_present_by_default(self, adapter):
         """CORS is disabled unless explicitly configured."""
@@ -2206,6 +2218,22 @@ class TestCORS:
             assert resp.headers.get("Access-Control-Allow-Origin") == "http://localhost:3000"
             assert "POST" in resp.headers.get("Access-Control-Allow-Methods", "")
             assert "DELETE" in resp.headers.get("Access-Control-Allow-Methods", "")
+
+    @pytest.mark.asyncio
+    async def test_cors_headers_present_when_origin_host_matches_host_header(self):
+        """Allowlist may omit public URL if Origin hostname matches request Host."""
+        adapter = _make_adapter(cors_origins=["http://localhost:8080"])
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.get(
+                "/health",
+                headers={
+                    "Origin": "http://203.0.113.5:6121",
+                    "Host": "203.0.113.5",
+                },
+            )
+            assert resp.status == 200
+            assert resp.headers.get("Access-Control-Allow-Origin") == "http://203.0.113.5:6121"
 
     @pytest.mark.asyncio
     async def test_cors_allows_idempotency_key_header(self):

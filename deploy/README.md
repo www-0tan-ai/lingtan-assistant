@@ -9,6 +9,8 @@ cp .env.example .env
 
 编辑 `deploy/.env`，至少配置：
 
+- 若提示容器名冲突，在 `.env` 里设置 `BACKEND_CONTAINER_NAME` / `FRONTEND_CONTAINER_NAME`（默认已改为 `lingtan-api`、`lingtan-ui`，与旧的 `lingtan-backend` 不重名）。
+
 - `HERMES_BASE_URL`（如果用 custom provider）
 - 至少一个可用密钥（如 `OPENAI_API_KEY` 或 `CUSTOM_API_KEY`）
 

@@ -4,7 +4,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.backend
     image: lingtan-backend:latest
-    container_name: lingtan-backend
+    container_name: ${BACKEND_CONTAINER_NAME:-lingtan-api}
     restart: unless-stopped
     ports:
       - "${BACKEND_PORT:-8650}:8650"
@@ -40,7 +40,7 @@ services:
         NPM_FETCH_RETRIES: ${NPM_FETCH_RETRIES:-5}
         NPM_FETCH_RETRY_MINTIMEOUT: ${NPM_FETCH_RETRY_MINTIMEOUT:-20000}
     image: lingtan-frontend:latest
-    container_name: lingtan-frontend
+    container_name: ${FRONTEND_CONTAINER_NAME:-lingtan-ui}
     restart: unless-stopped
     depends_on:
       - lingtan-backend

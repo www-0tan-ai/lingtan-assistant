@@ -1,0 +1,47 @@
+services:
+  lingtan-backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: lingtan-backend:latest
+    container_name: lingtan-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8650}:8650"
+    environment:
+      - HERMES_UID=${HERMES_UID:-10000}
+      - HERMES_GID=${HERMES_GID:-10000}
+      - HERMES_HOME=/opt/data
+      - API_SERVER_ENABLED=true
+      - API_SERVER_HOST=0.0.0.0
+      - API_SERVER_PORT=8650
+      - API_SERVER_CORS_ORIGINS=${API_SERVER_CORS_ORIGINS:-http://localhost:${FRONTEND_PORT:-8080}}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - XAI_API_KEY=${XAI_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - CUSTOM_API_KEY=${CUSTOM_API_KEY:-}
+      - HERMES_DEFAULT_PROVIDER=${HERMES_DEFAULT_PROVIDER:-custom}
+      - HERMES_DEFAULT_MODEL=${HERMES_DEFAULT_MODEL:-gpt-5-mini}
+      - HERMES_BASE_URL=${HERMES_BASE_URL:-}
+    command: ["gateway", "run"]
+    volumes:
+      - lingtan_data:/opt/data
+
+  lingtan-frontend:
+    build:
+      context: ../zerocarbon-assistant-fronted
+      dockerfile: Dockerfile
+    image: lingtan-frontend:latest
+    container_name: lingtan-frontend
+    restart: unless-stopped
+    depends_on:
+      - lingtan-backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+
+volumes:
+  lingtan_data:

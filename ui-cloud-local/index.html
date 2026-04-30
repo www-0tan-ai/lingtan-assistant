@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>灵碳助手</title>
+  <link rel="stylesheet" href="/app/styles.css" />
+</head>
+<body>
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="login-avatar">◉</div>
+      <h1>Claw Your Ideas Into Reality</h1>
+      <p>随处下达，本地完成。</p>
+      <div class="login-form">
+        <input id="login-email" type="email" placeholder="邮箱" />
+        <input id="login-password" type="password" placeholder="密码" />
+        <div class="login-actions">
+          <button id="landing-register" class="ghost-btn">注册</button>
+          <button id="landing-login">登录</button>
+        </div>
+      </div>
+      <div id="login-error" class="login-error"></div>
+      <div class="login-footer">隐私政策　　服务条款</div>
+    </div>
+  </section>
+
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="left-rail">
+      <div class="logo-wrap">
+        <div class="logo-dot"></div>
+        <div>
+          <div class="logo-title">灵碳助手</div>
+          <div class="logo-sub">Triggered Anywhere</div>
+        </div>
+      </div>
+
+      <div class="search-box">搜索任务</div>
+
+      <button class="task-create">+ 新建任务</button>
+
+      <div class="menu-list">
+        <button class="menu-item nav-btn active" data-tab="chat">🧠 智能助手</button>
+        <button class="menu-item nav-btn" data-tab="sync">☁️ 云端同步</button>
+        <button class="menu-item nav-btn" data-tab="account">👤 账号中心</button>
+      </div>
+
+      <div class="workspace-title">工作空间</div>
+      <div class="workspace-item active">20260424204216</div>
+      <div class="workspace-item">zhima</div>
+      <button id="logout-btn" class="logout-btn">退出登录</button>
+    </aside>
+
+    <main class="main-stage">
+      <header class="hero">
+        <div class="bot-avatar">◉</div>
+        <h1>Claw Your Ideas Into Reality</h1>
+        <p>Triggered Anywhere, Completed Locally</p>
+        <div class="mode-switch">
+          <button class="mode-pill active">代码开发</button>
+          <button class="mode-pill">日常办公</button>
+          <button class="mode-pill">任务执行</button>
+        </div>
+      </header>
+
+      <section id="tab-chat" class="tab active glass">
+        <div id="chat-log" class="chat-log"></div>
+        <div class="quick-actions">
+          <button class="quick-chip" data-prompt="请分析我今天的本地数据趋势">📈 数据分析</button>
+          <button class="quick-chip" data-prompt="请帮我生成任务推进计划">🧭 项目管理</button>
+          <button class="quick-chip" data-prompt="请总结最近三条同步事件">🔄 同步总结</button>
+        </div>
+        <div class="composer">
+          <textarea id="chat-input" placeholder="输入消息..." rows="3"></textarea>
+          <button id="send-chat">发送</button>
+        </div>
+      </section>
+
+      <section id="tab-sync" class="tab glass">
+        <div class="section-title">云端同步控制台</div>
+        <div class="row">
+          <button id="push-sample">推送样例数据</button>
+          <button id="pull-events">拉取最新事件</button>
+        </div>
+        <pre id="sync-result" class="panel"></pre>
+      </section>
+
+      <section id="tab-account" class="tab glass">
+        <div class="section-title">账号与设备</div>
+        <div class="row two-col">
+          <input id="email" type="email" placeholder="邮箱" />
+          <input id="password" type="password" placeholder="密码（至少8位）" />
+        </div>
+        <div class="row">
+          <button id="register">注册</button>
+          <button id="login">登录</button>
+          <button id="bind-device">绑定设备</button>
+        </div>
+        <pre id="account-result" class="panel"></pre>
+      </section>
+    </main>
+  </div>
+  <script src="/app/app.js"></script>
+</body>
+</html>

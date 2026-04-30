@@ -34,6 +34,7 @@ import re
 import sqlite3
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
@@ -43,6 +44,7 @@ except ImportError:
     AIOHTTP_AVAILABLE = False
     web = None  # type: ignore[assignment]
 
+from gateway.cloud_sync_store import CloudSyncStore
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import (
     BasePlatformAdapter,
@@ -595,6 +597,8 @@ class APIServerAdapter(BasePlatformAdapter):
         # Pollable run status for dashboards and external control-plane UIs.
         self._run_statuses: Dict[str, Dict[str, Any]] = {}
         self._session_db: Optional[Any] = None  # Lazy-init SessionDB for session continuity
+        self._cloud_sync_store = CloudSyncStore(db_path=extra.get("cloud_sync_db_path"))
+        self._ui_root = Path(__file__).resolve().parents[2] / "ui-cloud-local"
 
     @staticmethod
     def _parse_cors_origins(value: Any) -> tuple[str, ...]:
@@ -687,6 +691,19 @@ class APIServerAdapter(BasePlatformAdapter):
             status=401,
         )
 
+    def _require_user_auth(self, request: "web.Request") -> tuple[Optional[Dict[str, Any]], Optional["web.Response"]]:
+        """Validate user access token for cloud-sync endpoints."""
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return None, web.json_response(_openai_error("Missing Bearer token.", code="missing_bearer"), status=401)
+        token = auth_header[7:].strip()
+        if not token:
+            return None, web.json_response(_openai_error("Missing Bearer token.", code="missing_bearer"), status=401)
+        token_data = self._cloud_sync_store.resolve_access_token(token)
+        if token_data is None:
+            return None, web.json_response(_openai_error("Invalid or expired access token.", code="invalid_access_token"), status=401)
+        return token_data, None
+
     # ------------------------------------------------------------------
     # Session DB helper
     # ------------------------------------------------------------------
@@ -769,6 +786,171 @@ class APIServerAdapter(BasePlatformAdapter):
     async def _handle_health(self, request: "web.Request") -> "web.Response":
         """GET /health — simple health check."""
         return web.json_response({"status": "ok", "platform": "hermes-agent"})
+
+    async def _handle_app_index(self, request: "web.Request") -> "web.Response":
+        """GET /app — serve white-label UI entry."""
+        index_path = self._ui_root / "index.html"
+        if not index_path.exists():
+            return web.Response(status=404, text="UI not found")
+        return web.FileResponse(path=index_path)
+
+    async def _handle_app_asset(self, request: "web.Request") -> "web.Response":
+        """GET /app/{path} — serve static UI assets."""
+        rel = request.match_info.get("path", "").strip()
+        if not rel:
+            return await self._handle_app_index(request)
+        candidate = (self._ui_root / rel).resolve()
+        try:
+            if self._ui_root.resolve() not in candidate.parents and candidate != self._ui_root.resolve():
+                return web.Response(status=403, text="Forbidden")
+        except Exception:
+            return web.Response(status=403, text="Forbidden")
+        if not candidate.exists() or not candidate.is_file():
+            return web.Response(status=404, text="Not found")
+        return web.FileResponse(path=candidate)
+
+    async def _handle_auth_register(self, request: "web.Request") -> "web.Response":
+        """POST /v1/auth/register — create account for cloud/local sync."""
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(_openai_error("Invalid JSON in request body", code="invalid_json"), status=400)
+        email = str(body.get("email", "")).strip()
+        password = str(body.get("password", ""))
+        try:
+            user = self._cloud_sync_store.register_user(email, password)
+        except ValueError as exc:
+            return web.json_response(_openai_error(str(exc), code="invalid_registration"), status=400)
+        return web.json_response({"user_id": user["user_id"], "email": user["email"]}, status=201)
+
+    async def _handle_auth_login(self, request: "web.Request") -> "web.Response":
+        """POST /v1/auth/login — issue access and refresh token."""
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(_openai_error("Invalid JSON in request body", code="invalid_json"), status=400)
+        email = str(body.get("email", "")).strip()
+        password = str(body.get("password", ""))
+        device_id = str(body.get("device_id", "")).strip() or None
+        user = self._cloud_sync_store.authenticate_user(email, password)
+        if user is None:
+            return web.json_response(_openai_error("Invalid email or password", code="invalid_credentials"), status=401)
+        session = self._cloud_sync_store.create_session(user["user_id"], device_id=device_id)
+        return web.json_response(
+            {
+                "token_type": "Bearer",
+                "access_token": session["access_token"],
+                "refresh_token": session["refresh_token"],
+                "access_expires_in": session["access_expires_in"],
+                "refresh_expires_in": session["refresh_expires_in"],
+                "user_id": user["user_id"],
+                "email": user["email"],
+            }
+        )
+
+    async def _handle_auth_refresh(self, request: "web.Request") -> "web.Response":
+        """POST /v1/auth/refresh — rotate credentials with refresh token."""
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(_openai_error("Invalid JSON in request body", code="invalid_json"), status=400)
+        refresh_token = str(body.get("refresh_token", "")).strip()
+        if not refresh_token:
+            return web.json_response(_openai_error("Missing refresh_token", code="missing_refresh_token"), status=400)
+        session = self._cloud_sync_store.refresh_session(refresh_token)
+        if session is None:
+            return web.json_response(_openai_error("Invalid or expired refresh token", code="invalid_refresh_token"), status=401)
+        return web.json_response(
+            {
+                "token_type": "Bearer",
+                "access_token": session["access_token"],
+                "refresh_token": session["refresh_token"],
+                "access_expires_in": session["access_expires_in"],
+                "refresh_expires_in": session["refresh_expires_in"],
+            }
+        )
+
+    async def _handle_auth_logout(self, request: "web.Request") -> "web.Response":
+        """POST /v1/auth/logout — revoke current access token."""
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return web.json_response(_openai_error("Missing Bearer token.", code="missing_bearer"), status=401)
+        token = auth_header[7:].strip()
+        revoked = self._cloud_sync_store.revoke_access_token(token)
+        return web.json_response({"ok": revoked})
+
+    async def _handle_device_register(self, request: "web.Request") -> "web.Response":
+        """POST /v1/devices/register — bind or refresh a user device."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(_openai_error("Invalid JSON in request body", code="invalid_json"), status=400)
+        device_id = str(body.get("device_id", "")).strip() or None
+        name = str(body.get("name", "local-device")).strip() or "local-device"
+        os_name = str(body.get("os", "unknown")).strip() or "unknown"
+        device = self._cloud_sync_store.register_device(token_data["user_id"], name, os_name, device_id=device_id)
+        return web.json_response(device, status=201)
+
+    async def _handle_devices_list(self, request: "web.Request") -> "web.Response":
+        """GET /v1/devices — list current user's devices."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        devices = self._cloud_sync_store.list_devices(token_data["user_id"])
+        return web.json_response({"devices": devices})
+
+    async def _handle_device_heartbeat(self, request: "web.Request") -> "web.Response":
+        """POST /v1/devices/heartbeat — update device heartbeat timestamp."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(_openai_error("Invalid JSON in request body", code="invalid_json"), status=400)
+        device_id = str(body.get("device_id", "")).strip()
+        if not device_id:
+            return web.json_response(_openai_error("Missing device_id", code="missing_device_id"), status=400)
+        ok = self._cloud_sync_store.heartbeat_device(token_data["user_id"], device_id)
+        if not ok:
+            return web.json_response(_openai_error("Device not found", code="device_not_found"), status=404)
+        return web.json_response({"ok": True, "device_id": device_id})
+
+    async def _handle_sync_push(self, request: "web.Request") -> "web.Response":
+        """POST /v1/sync/push — push local events to cloud."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(_openai_error("Invalid JSON in request body", code="invalid_json"), status=400)
+        events = body.get("events")
+        if not isinstance(events, list):
+            return web.json_response(_openai_error("Missing or invalid events list", code="invalid_events"), status=400)
+        accepted, rejected, next_cursor = self._cloud_sync_store.push_events(token_data["user_id"], events)
+        return web.json_response({"accepted_event_ids": accepted, "rejected": rejected, "next_cursor": next_cursor})
+
+    async def _handle_sync_pull(self, request: "web.Request") -> "web.Response":
+        """GET /v1/sync/pull — fetch remote events after cursor."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        cursor_raw = request.rel_url.query.get("cursor", "0")
+        limit_raw = request.rel_url.query.get("limit", "100")
+        device_id = request.rel_url.query.get("device_id", "")
+        try:
+            cursor = max(0, int(cursor_raw))
+            limit = max(1, min(500, int(limit_raw)))
+        except ValueError:
+            return web.json_response(_openai_error("cursor/limit must be integers", code="invalid_cursor"), status=400)
+        events, next_cursor = self._cloud_sync_store.pull_events(token_data["user_id"], cursor, limit=limit)
+        if device_id:
+            self._cloud_sync_store.update_cursor(token_data["user_id"], device_id, next_cursor)
+        return web.json_response({"events": events, "next_cursor": next_cursor, "has_more": len(events) >= limit})
 
     async def _handle_health_detailed(self, request: "web.Request") -> "web.Response":
         """GET /health/detailed — rich status for cross-container dashboard probing.
@@ -2777,7 +2959,18 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app["api_server_adapter"] = self
             self._app.router.add_get("/health", self._handle_health)
             self._app.router.add_get("/health/detailed", self._handle_health_detailed)
+            self._app.router.add_get("/app", self._handle_app_index)
+            self._app.router.add_get("/app/{path:.*}", self._handle_app_asset)
             self._app.router.add_get("/v1/health", self._handle_health)
+            self._app.router.add_post("/v1/auth/register", self._handle_auth_register)
+            self._app.router.add_post("/v1/auth/login", self._handle_auth_login)
+            self._app.router.add_post("/v1/auth/refresh", self._handle_auth_refresh)
+            self._app.router.add_post("/v1/auth/logout", self._handle_auth_logout)
+            self._app.router.add_post("/v1/devices/register", self._handle_device_register)
+            self._app.router.add_get("/v1/devices", self._handle_devices_list)
+            self._app.router.add_post("/v1/devices/heartbeat", self._handle_device_heartbeat)
+            self._app.router.add_post("/v1/sync/push", self._handle_sync_push)
+            self._app.router.add_get("/v1/sync/pull", self._handle_sync_pull)
             self._app.router.add_get("/v1/models", self._handle_models)
             self._app.router.add_get("/v1/capabilities", self._handle_capabilities)
             self._app.router.add_post("/v1/chat/completions", self._handle_chat_completions)

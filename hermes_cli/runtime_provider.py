@@ -303,14 +303,27 @@ def resolve_requested_provider(requested: Optional[str] = None) -> str:
 
     model_cfg = _get_model_config()
     cfg_provider = model_cfg.get("provider")
+    cfg_str = ""
     if isinstance(cfg_provider, str) and cfg_provider.strip():
-        return cfg_provider.strip().lower()
+        cfg_str = cfg_provider.strip().lower()
 
-    # Prefer the persisted config selection over any stale shell/.env
-    # provider override so chat uses the endpoint the user last saved.
+    # Non-auto provider from config wins (user explicitly pinned in YAML).
+    if cfg_str and cfg_str != "auto":
+        return cfg_str
+
+    # HERMES_INFERENCE_PROVIDER beats HERMES_DEFAULT_PROVIDER (explicit dev override).
     env_provider = os.getenv("HERMES_INFERENCE_PROVIDER", "").strip().lower()
     if env_provider:
         return env_provider
+
+    # When model.provider is "auto" (default shipped config), allow Docker /
+    # compose to pin the runtime via HERMES_DEFAULT_PROVIDER (Lingtan stack).
+    env_default = os.getenv("HERMES_DEFAULT_PROVIDER", "").strip().lower()
+    if env_default:
+        return env_default
+
+    if cfg_str == "auto":
+        return "auto"
 
     return "auto"
 
@@ -566,6 +579,7 @@ def _resolve_openrouter_runtime(
 
     env_openrouter_base_url = os.getenv("OPENROUTER_BASE_URL", "").strip()
     env_custom_base_url = os.getenv("CUSTOM_BASE_URL", "").strip()
+    env_hermes_base_url = os.getenv("HERMES_BASE_URL", "").strip().rstrip("/")
 
     # Use config base_url when available and the provider context matches.
     # OPENAI_BASE_URL env var is no longer consulted — config.yaml is
@@ -583,6 +597,7 @@ def _resolve_openrouter_runtime(
     base_url = (
         (explicit_base_url or "").strip()
         or env_custom_base_url
+        or env_hermes_base_url
         or (cfg_base_url.strip() if use_config_base_url else "")
         or env_openrouter_base_url
         or OPENROUTER_BASE_URL
@@ -612,6 +627,7 @@ def _resolve_openrouter_runtime(
         api_key_candidates = [
             explicit_api_key,
             (cfg_api_key if use_config_base_url else ""),
+            os.getenv("CUSTOM_API_KEY", ""),
             (os.getenv("OLLAMA_API_KEY") if _is_ollama_url else ""),
             os.getenv("OPENAI_API_KEY"),
             os.getenv("OPENROUTER_API_KEY"),

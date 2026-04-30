@@ -947,6 +947,7 @@ def test_explicit_openrouter_honors_openrouter_base_url_over_pool(monkeypatch):
 
 
 def test_resolve_requested_provider_precedence(monkeypatch):
+    monkeypatch.delenv("HERMES_DEFAULT_PROVIDER", raising=False)
     monkeypatch.setenv("HERMES_INFERENCE_PROVIDER", "nous")
     monkeypatch.setattr(rp, "_get_model_config", lambda: {"provider": "openai-codex"})
     assert rp.resolve_requested_provider("openrouter") == "openrouter"
@@ -956,7 +957,37 @@ def test_resolve_requested_provider_precedence(monkeypatch):
     assert rp.resolve_requested_provider() == "nous"
 
     monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
+    monkeypatch.delenv("HERMES_DEFAULT_PROVIDER", raising=False)
     assert rp.resolve_requested_provider() == "auto"
+
+
+def test_resolve_requested_provider_hermes_default_overrides_auto_config(monkeypatch):
+    monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
+    monkeypatch.setenv("HERMES_DEFAULT_PROVIDER", "custom")
+    monkeypatch.setattr(rp, "_get_model_config", lambda: {"provider": "auto"})
+    assert rp.resolve_requested_provider() == "custom"
+
+
+def test_resolve_requested_provider_config_non_auto_beats_hermes_default(monkeypatch):
+    monkeypatch.setenv("HERMES_DEFAULT_PROVIDER", "custom")
+    monkeypatch.setattr(rp, "_get_model_config", lambda: {"provider": "openrouter"})
+    assert rp.resolve_requested_provider() == "openrouter"
+
+
+def test_openrouter_runtime_custom_prefers_hermes_base_url_and_custom_api_key(monkeypatch):
+    """Lingtan Docker: HERMES_BASE_URL + CUSTOM_API_KEY when config still says OpenRouter."""
+    monkeypatch.setenv("HERMES_BASE_URL", "https://azure.example/openai/v1")
+    monkeypatch.setenv("CUSTOM_API_KEY", "x" * 32)
+    monkeypatch.delenv("CUSTOM_BASE_URL", raising=False)
+    monkeypatch.setattr(
+        rp,
+        "_get_model_config",
+        lambda: {"provider": "auto", "base_url": "https://openrouter.ai/api/v1"},
+    )
+    out = rp._resolve_openrouter_runtime(requested_provider="custom")
+    assert out["provider"] == "custom"
+    assert "azure.example" in out["base_url"]
+    assert out["api_key"] == "x" * 32
 
 
 # ── api_mode config override tests ──────────────────────────────────────

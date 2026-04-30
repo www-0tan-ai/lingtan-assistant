@@ -13,7 +13,7 @@ cp .env.example .env
 - **`API_SERVER_KEY`（公网部署必填）**：绑定 `0.0.0.0` 时网关要求非空密钥，否则 API 不启动 → **502**。在 `.env` 中设置随机串（如 `openssl rand -hex 32`）。未写该项时 `docker compose` 仍可解析，但容器内服务起不来。
 - **`API_SERVER_CORS_ORIGINS`**：须包含用户浏览器里的前端地址（例如 `http://你的公网IP:6121`），否则注册/登录在浏览器里会因 CORS 失败（与 502 不同，但常被一起排查）。
 
-- `HERMES_BASE_URL`（如果用 custom provider）
+- `HERMES_BASE_URL` + `CUSTOM_API_KEY`（或 `OPENAI_API_KEY`）：与 `HERMES_DEFAULT_PROVIDER=custom` 一起供网关推理；仅写进 compose 不够时，默认 `config.yaml` 仍是 `provider: auto` + OpenRouter，会导致上游 **401 Missing Authentication**。
 - 至少一个可用密钥（如 `OPENAI_API_KEY` 或 `CUSTOM_API_KEY`）
 
 ## 2) 启动

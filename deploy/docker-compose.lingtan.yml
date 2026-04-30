@@ -26,9 +26,12 @@ services:
       - XAI_API_KEY=${XAI_API_KEY:-}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - CUSTOM_API_KEY=${CUSTOM_API_KEY:-}
+      # 网关推理：config 里 provider 为 auto 时，用 HERMES_DEFAULT_PROVIDER + HERMES_BASE_URL + CUSTOM_API_KEY
       - HERMES_DEFAULT_PROVIDER=${HERMES_DEFAULT_PROVIDER:-custom}
       - HERMES_DEFAULT_MODEL=${HERMES_DEFAULT_MODEL:-gpt-5-mini}
       - HERMES_BASE_URL=${HERMES_BASE_URL:-}
+      # 可选：显式覆盖推理 provider（优先级高于 HERMES_DEFAULT_PROVIDER）
+      - HERMES_INFERENCE_PROVIDER=${HERMES_INFERENCE_PROVIDER:-}
     command: ["gateway", "run"]
     volumes:
       - lingtan_data:/opt/data

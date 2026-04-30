@@ -10,7 +10,7 @@ cp .env.example .env
 编辑 `deploy/.env`，至少配置：
 
 - 若提示容器名冲突，在 `.env` 里设置 `BACKEND_CONTAINER_NAME` / `FRONTEND_CONTAINER_NAME`（默认已改为 `lingtan-api`、`lingtan-ui`，与旧的 `lingtan-backend` 不重名）。
-- **`API_SERVER_KEY`（必填）**：绑定 `0.0.0.0` 时网关要求配置该密钥，否则 API 进程不启动，经 nginx 反代会出现 **502**。在 `.env` 中设置随机串（如 `openssl rand -hex 32`）。
+- **`API_SERVER_KEY`（公网部署必填）**：绑定 `0.0.0.0` 时网关要求非空密钥，否则 API 不启动 → **502**。在 `.env` 中设置随机串（如 `openssl rand -hex 32`）。未写该项时 `docker compose` 仍可解析，但容器内服务起不来。
 - **`API_SERVER_CORS_ORIGINS`**：须包含用户浏览器里的前端地址（例如 `http://你的公网IP:6121`），否则注册/登录在浏览器里会因 CORS 失败（与 502 不同，但常被一起排查）。
 
 - `HERMES_BASE_URL`（如果用 custom provider）

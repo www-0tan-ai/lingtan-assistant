@@ -2,7 +2,7 @@ services:
   lingtan-backend:
     build:
       context: ..
-      dockerfile: Dockerfile
+      dockerfile: deploy/Dockerfile.backend
     image: lingtan-backend:latest
     container_name: lingtan-backend
     restart: unless-stopped
@@ -35,6 +35,10 @@ services:
     build:
       context: ../zerocarbon-assistant-fronted
       dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
+        NPM_FETCH_RETRIES: ${NPM_FETCH_RETRIES:-5}
+        NPM_FETCH_RETRY_MINTIMEOUT: ${NPM_FETCH_RETRY_MINTIMEOUT:-20000}
     image: lingtan-frontend:latest
     container_name: lingtan-frontend
     restart: unless-stopped

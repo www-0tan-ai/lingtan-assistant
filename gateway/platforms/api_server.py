@@ -691,6 +691,39 @@ class APIServerAdapter(BasePlatformAdapter):
             status=401,
         )
 
+    def _check_auth_openai_compat(self, request: "web.Request") -> Optional["web.Response"]:
+        """Like ``_check_auth`` but also accepts a valid cloud-sync user access token.
+
+        Used for OpenAI-compatible routes so browser UIs can send the user's
+        JWT after login while still requiring ``API_SERVER_KEY`` when the
+        server binds on a non-loopback address (startup gate).  Cron ``/api/*``
+        routes keep using ``_check_auth`` (API key only).
+        """
+        if not self._api_key:
+            return None
+
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return web.json_response(
+                {
+                    "error": {
+                        "message": "Invalid API key",
+                        "type": "invalid_request_error",
+                        "code": "invalid_api_key",
+                    },
+                },
+                status=401,
+            )
+        token = auth_header[7:].strip()
+        if hmac.compare_digest(token, self._api_key):
+            return None
+        if self._cloud_sync_store.resolve_access_token(token) is not None:
+            return None
+        return web.json_response(
+            {"error": {"message": "Invalid API key", "type": "invalid_request_error", "code": "invalid_api_key"}},
+            status=401,
+        )
+
     def _require_user_auth(self, request: "web.Request") -> tuple[Optional[Dict[str, Any]], Optional["web.Response"]]:
         """Validate user access token for cloud-sync endpoints."""
         auth_header = request.headers.get("Authorization", "")
@@ -975,7 +1008,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     async def _handle_models(self, request: "web.Request") -> "web.Response":
         """GET /v1/models — return hermes-agent as an available model."""
-        auth_err = self._check_auth(request)
+        auth_err = self._check_auth_openai_compat(request)
         if auth_err:
             return auth_err
 
@@ -1001,7 +1034,7 @@ class APIServerAdapter(BasePlatformAdapter):
         server's plugin-safe contract without scraping docs or assuming that
         every Hermes version exposes the same endpoints.
         """
-        auth_err = self._check_auth(request)
+        auth_err = self._check_auth_openai_compat(request)
         if auth_err:
             return auth_err
 
@@ -1041,7 +1074,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     async def _handle_chat_completions(self, request: "web.Request") -> "web.Response":
         """POST /v1/chat/completions — OpenAI Chat Completions format."""
-        auth_err = self._check_auth(request)
+        auth_err = self._check_auth_openai_compat(request)
         if auth_err:
             return auth_err
 
@@ -1929,7 +1962,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     async def _handle_responses(self, request: "web.Request") -> "web.Response":
         """POST /v1/responses — OpenAI Responses API format."""
-        auth_err = self._check_auth(request)
+        auth_err = self._check_auth_openai_compat(request)
         if auth_err:
             return auth_err
 
@@ -2194,7 +2227,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     async def _handle_get_response(self, request: "web.Request") -> "web.Response":
         """GET /v1/responses/{response_id} — retrieve a stored response."""
-        auth_err = self._check_auth(request)
+        auth_err = self._check_auth_openai_compat(request)
         if auth_err:
             return auth_err
 
@@ -2207,7 +2240,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     async def _handle_delete_response(self, request: "web.Request") -> "web.Response":
         """DELETE /v1/responses/{response_id} — delete a stored response."""
-        auth_err = self._check_auth(request)
+        auth_err = self._check_auth_openai_compat(request)
         if auth_err:
             return auth_err
 
@@ -2618,7 +2651,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     async def _handle_runs(self, request: "web.Request") -> "web.Response":
         """POST /v1/runs — start an agent run, return run_id immediately."""
-        auth_err = self._check_auth(request)
+        auth_err = self._check_auth_openai_compat(request)
         if auth_err:
             return auth_err
 
@@ -2815,7 +2848,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     async def _handle_get_run(self, request: "web.Request") -> "web.Response":
         """GET /v1/runs/{run_id} — return pollable run status for external UIs."""
-        auth_err = self._check_auth(request)
+        auth_err = self._check_auth_openai_compat(request)
         if auth_err:
             return auth_err
 
@@ -2830,7 +2863,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     async def _handle_run_events(self, request: "web.Request") -> "web.StreamResponse":
         """GET /v1/runs/{run_id}/events — SSE stream of structured agent lifecycle events."""
-        auth_err = self._check_auth(request)
+        auth_err = self._check_auth_openai_compat(request)
         if auth_err:
             return auth_err
 
@@ -2879,7 +2912,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     async def _handle_stop_run(self, request: "web.Request") -> "web.Response":
         """POST /v1/runs/{run_id}/stop — interrupt a running agent."""
-        auth_err = self._check_auth(request)
+        auth_err = self._check_auth_openai_compat(request)
         if auth_err:
             return auth_err
 

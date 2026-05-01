@@ -392,8 +392,8 @@ class ResponseStore:
 # ---------------------------------------------------------------------------
 
 _CORS_HEADERS = {
-    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key, X-Lingtan-Device-Id",
 }
 
 
@@ -773,6 +773,17 @@ class APIServerAdapter(BasePlatformAdapter):
             return None, web.json_response(_openai_error("Invalid or expired access token.", code="invalid_access_token"), status=401)
         return token_data, None
 
+    def _extract_lingtan_device_id(self, request: "web.Request", body: Optional[Dict[str, Any]] = None) -> str:
+        h = (request.headers.get("X-Lingtan-Device-Id") or "").strip()
+        if h:
+            return h
+        if isinstance(body, dict):
+            dv = body.get("device_id")
+            if dv is not None and str(dv).strip():
+                return str(dv).strip()
+        qs = request.rel_url.query.get("device_id", "")
+        return str(qs).strip()
+
     # ------------------------------------------------------------------
     # Session DB helper
     # ------------------------------------------------------------------
@@ -890,7 +901,10 @@ class APIServerAdapter(BasePlatformAdapter):
             user = self._cloud_sync_store.register_user(email, password)
         except ValueError as exc:
             return web.json_response(_openai_error(str(exc), code="invalid_registration"), status=400)
-        return web.json_response({"user_id": user["user_id"], "email": user["email"]}, status=201)
+        payload = {"user_id": user["user_id"], "email": user["email"]}
+        if user.get("default_workspace_id"):
+            payload["default_workspace_id"] = user["default_workspace_id"]
+        return web.json_response(payload, status=201)
 
     async def _handle_auth_login(self, request: "web.Request") -> "web.Response":
         """POST /v1/auth/login — issue access and refresh token."""
@@ -905,17 +919,19 @@ class APIServerAdapter(BasePlatformAdapter):
         if user is None:
             return web.json_response(_openai_error("Invalid email or password", code="invalid_credentials"), status=401)
         session = self._cloud_sync_store.create_session(user["user_id"], device_id=device_id)
-        return web.json_response(
-            {
-                "token_type": "Bearer",
-                "access_token": session["access_token"],
-                "refresh_token": session["refresh_token"],
-                "access_expires_in": session["access_expires_in"],
-                "refresh_expires_in": session["refresh_expires_in"],
-                "user_id": user["user_id"],
-                "email": user["email"],
-            }
-        )
+        ws_id = self._cloud_sync_store.get_default_workspace_id(user["user_id"])
+        resp_body: Dict[str, Any] = {
+            "token_type": "Bearer",
+            "access_token": session["access_token"],
+            "refresh_token": session["refresh_token"],
+            "access_expires_in": session["access_expires_in"],
+            "refresh_expires_in": session["refresh_expires_in"],
+            "user_id": user["user_id"],
+            "email": user["email"],
+        }
+        if ws_id:
+            resp_body["default_workspace_id"] = ws_id
+        return web.json_response(resp_body)
 
     async def _handle_auth_refresh(self, request: "web.Request") -> "web.Response":
         """POST /v1/auth/refresh — rotate credentials with refresh token."""
@@ -988,6 +1004,186 @@ class APIServerAdapter(BasePlatformAdapter):
             return web.json_response(_openai_error("Device not found", code="device_not_found"), status=404)
         return web.json_response({"ok": True, "device_id": device_id})
 
+    async def _handle_workspaces_list(self, request: "web.Request") -> "web.Response":
+        """GET /v1/workspaces — list workspaces for current user."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        items = self._cloud_sync_store.list_workspaces(token_data["user_id"])
+        return web.json_response({"workspaces": items})
+
+    async def _handle_collector_tasks_list(self, request: "web.Request") -> "web.Response":
+        """GET /v1/collector/tasks — list collector tasks in a workspace."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        uid = token_data["user_id"]
+        ws_q = request.rel_url.query.get("workspace_id", "").strip()
+        ws = self._cloud_sync_store.resolve_workspace(uid, ws_q) if ws_q else self._cloud_sync_store.get_default_workspace_id(uid)
+        if not ws:
+            return web.json_response(_openai_error("Workspace not found", code="workspace_not_found"), status=404)
+        tasks = self._cloud_sync_store.list_collector_tasks(uid, ws)
+        return web.json_response({"tasks": tasks, "workspace_id": ws})
+
+    async def _handle_collector_tasks_create(self, request: "web.Request") -> "web.Response":
+        """POST /v1/collector/tasks — create a collector task."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        uid = token_data["user_id"]
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(_openai_error("Invalid JSON in request body", code="invalid_json"), status=400)
+        ws_q = str(body.get("workspace_id", "")).strip()
+        ws = self._cloud_sync_store.resolve_workspace(uid, ws_q) if ws_q else self._cloud_sync_store.get_default_workspace_id(uid)
+        if not ws:
+            return web.json_response(_openai_error("Workspace not found", code="workspace_not_found"), status=404)
+        name = str(body.get("name", "")).strip()
+        if not name:
+            return web.json_response(_openai_error("Missing task name", code="missing_name"), status=400)
+        source_type = str(body.get("source_type", "file")).strip() or "file"
+        schedule = body.get("schedule")
+        config = body.get("config") if isinstance(body.get("config"), dict) else {}
+        enabled = bool(body.get("enabled", True))
+        created = self._cloud_sync_store.create_collector_task(
+            uid,
+            ws,
+            name=name,
+            source_type=source_type,
+            schedule=str(schedule).strip() if schedule else None,
+            config=config,
+            enabled=enabled,
+        )
+        return web.json_response(created, status=201)
+
+    async def _handle_collector_task_patch(self, request: "web.Request") -> "web.Response":
+        """PATCH /v1/collector/tasks/{task_id} — update a collector task."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        uid = token_data["user_id"]
+        task_id = str(request.match_info.get("task_id", "")).strip()
+        if not task_id:
+            return web.json_response(_openai_error("Missing task_id", code="missing_task_id"), status=400)
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(_openai_error("Invalid JSON in request body", code="invalid_json"), status=400)
+        ws_q = str(body.get("workspace_id") or request.rel_url.query.get("workspace_id") or "").strip()
+        ws = self._cloud_sync_store.resolve_workspace(uid, ws_q) if ws_q else self._cloud_sync_store.get_default_workspace_id(uid)
+        if not ws:
+            return web.json_response(_openai_error("Workspace not found", code="workspace_not_found"), status=404)
+        name = body.get("name")
+        name_s = str(name).strip() if isinstance(name, str) else None
+        source_type = body.get("source_type")
+        st_s = str(source_type).strip() if isinstance(source_type, str) else None
+        cfg = body.get("config") if isinstance(body.get("config"), dict) else None
+        enabled = body.get("enabled")
+        eb = enabled if isinstance(enabled, bool) else None
+        if "schedule" in body:
+            sch_raw = body.get("schedule")
+            sch = str(sch_raw).strip() if sch_raw not in (None, "") else None
+            updated = self._cloud_sync_store.patch_collector_task(
+                uid, ws, task_id, name=name_s, source_type=st_s, schedule=sch, config=cfg, enabled=eb
+            )
+        else:
+            updated = self._cloud_sync_store.patch_collector_task(uid, ws, task_id, name=name_s, source_type=st_s, config=cfg, enabled=eb)
+        if updated is None:
+            return web.json_response(_openai_error("Task not found", code="task_not_found"), status=404)
+        return web.json_response(updated)
+
+    async def _handle_collector_task_run(self, request: "web.Request") -> "web.Response":
+        """POST /v1/collector/tasks/{task_id}/run — record a manual run request (MVP bookkeeping)."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        uid = token_data["user_id"]
+        task_id = str(request.match_info.get("task_id", "")).strip()
+        if not task_id:
+            return web.json_response(_openai_error("Missing task_id", code="missing_task_id"), status=400)
+        body: Dict[str, Any] = {}
+        try:
+            if request.can_read_body:
+                body = await request.json()
+        except Exception:
+            body = {}
+        ws_q = str(body.get("workspace_id", "") or request.rel_url.query.get("workspace_id", "") or "").strip()
+        ws = self._cloud_sync_store.resolve_workspace(uid, ws_q) if ws_q else self._cloud_sync_store.get_default_workspace_id(uid)
+        if not ws:
+            return web.json_response(_openai_error("Workspace not found", code="workspace_not_found"), status=404)
+        result = self._cloud_sync_store.run_collector_task(uid, ws, task_id)
+        if result is None:
+            return web.json_response(_openai_error("Task not found", code="task_not_found"), status=404)
+        return web.json_response(result)
+
+    async def _handle_reports_create(self, request: "web.Request") -> "web.Response":
+        """POST /v1/reports — create analysis report (materialized + sync event)."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        uid = token_data["user_id"]
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(_openai_error("Invalid JSON in request body", code="invalid_json"), status=400)
+        ws_q = str(body.get("workspace_id", "")).strip()
+        ws = self._cloud_sync_store.resolve_workspace(uid, ws_q) if ws_q else self._cloud_sync_store.get_default_workspace_id(uid)
+        if not ws:
+            return web.json_response(_openai_error("Workspace not found", code="workspace_not_found"), status=404)
+        summary = str(body.get("summary", "")).strip()
+        if not summary:
+            return web.json_response(_openai_error("Missing summary", code="missing_summary"), status=400)
+        task_id_raw = body.get("task_id")
+        task_link = str(task_id_raw).strip() if task_id_raw else None
+        tags_raw = body.get("tags")
+        tags_list = tags_raw if isinstance(tags_raw, list) else None
+        score_raw = body.get("score")
+        score_val = float(score_raw) if score_raw is not None and str(score_raw) != "" else None
+        report_id_raw = body.get("report_id")
+        report_id_opt = str(report_id_raw).strip() if report_id_raw else None
+        extra_payload = body.get("extra") if isinstance(body.get("extra"), dict) else None
+        rep = self._cloud_sync_store.create_report(
+            uid,
+            ws,
+            summary=summary,
+            task_id=task_link,
+            tags=tags_list,
+            score=score_val,
+            extra_payload=extra_payload or {},
+            report_id=report_id_opt,
+        )
+        return web.json_response(rep, status=201)
+
+    async def _handle_reports_list(self, request: "web.Request") -> "web.Response":
+        """GET /v1/reports — list reports for a workspace."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        uid = token_data["user_id"]
+        ws_q = request.rel_url.query.get("workspace_id", "").strip()
+        ws = self._cloud_sync_store.resolve_workspace(uid, ws_q) if ws_q else self._cloud_sync_store.get_default_workspace_id(uid)
+        if not ws:
+            return web.json_response(_openai_error("Workspace not found", code="workspace_not_found"), status=404)
+        try:
+            lim = int(request.rel_url.query.get("limit", "100"))
+        except ValueError:
+            lim = 100
+        items = self._cloud_sync_store.list_reports(uid, ws, limit=lim)
+        return web.json_response({"reports": items, "workspace_id": ws})
+
+    async def _handle_report_get(self, request: "web.Request") -> "web.Response":
+        """GET /v1/reports/{report_id} — fetch one report."""
+        token_data, auth_err = self._require_user_auth(request)
+        if auth_err:
+            return auth_err
+        uid = token_data["user_id"]
+        rid = str(request.match_info.get("report_id", "")).strip()
+        row = self._cloud_sync_store.get_report(uid, rid)
+        if row is None:
+            return web.json_response(_openai_error("Report not found", code="report_not_found"), status=404)
+        return web.json_response(row)
+
     async def _handle_sync_push(self, request: "web.Request") -> "web.Response":
         """POST /v1/sync/push — push local events to cloud."""
         token_data, auth_err = self._require_user_auth(request)
@@ -997,10 +1193,24 @@ class APIServerAdapter(BasePlatformAdapter):
             body = await request.json()
         except Exception:
             return web.json_response(_openai_error("Invalid JSON in request body", code="invalid_json"), status=400)
+        device_id = self._extract_lingtan_device_id(request, body)
+        if not device_id:
+            return web.json_response(
+                _openai_error("Provide device_id (body or query) or X-Lingtan-Device-Id header.", code="missing_device_id"),
+                status=400,
+            )
+        if not self._cloud_sync_store.verify_device_owned(token_data["user_id"], device_id):
+            return web.json_response(_openai_error("Unknown or unregistered device_id", code="device_not_registered"), status=403)
         events = body.get("events")
         if not isinstance(events, list):
             return web.json_response(_openai_error("Missing or invalid events list", code="invalid_events"), status=400)
-        accepted, rejected, next_cursor = self._cloud_sync_store.push_events(token_data["user_id"], events)
+        ws_default = token_data["user_id"] and self._cloud_sync_store.get_default_workspace_id(token_data["user_id"])
+        accepted, rejected, next_cursor = self._cloud_sync_store.push_events(
+            token_data["user_id"],
+            events,
+            device_id=device_id,
+            default_workspace_id=ws_default,
+        )
         return web.json_response({"accepted_event_ids": accepted, "rejected": rejected, "next_cursor": next_cursor})
 
     async def _handle_sync_pull(self, request: "web.Request") -> "web.Response":
@@ -1010,15 +1220,29 @@ class APIServerAdapter(BasePlatformAdapter):
             return auth_err
         cursor_raw = request.rel_url.query.get("cursor", "0")
         limit_raw = request.rel_url.query.get("limit", "100")
-        device_id = request.rel_url.query.get("device_id", "")
+        device_id = self._extract_lingtan_device_id(request)
+        ws_filter_raw = request.rel_url.query.get("workspace_id", "").strip() or None
+        wf: Optional[str] = None
+        if ws_filter_raw:
+            wf = self._cloud_sync_store.resolve_workspace(token_data["user_id"], ws_filter_raw)
+            if not wf:
+                return web.json_response(_openai_error("Workspace not found", code="workspace_not_found"), status=404)
         try:
             cursor = max(0, int(cursor_raw))
             limit = max(1, min(500, int(limit_raw)))
         except ValueError:
             return web.json_response(_openai_error("cursor/limit must be integers", code="invalid_cursor"), status=400)
-        events, next_cursor = self._cloud_sync_store.pull_events(token_data["user_id"], cursor, limit=limit)
-        if device_id:
-            self._cloud_sync_store.update_cursor(token_data["user_id"], device_id, next_cursor)
+        if not device_id:
+            return web.json_response(
+                _openai_error("Provide device_id query parameter or X-Lingtan-Device-Id header.", code="missing_device_id"),
+                status=400,
+            )
+        if not self._cloud_sync_store.verify_device_owned(token_data["user_id"], device_id):
+            return web.json_response(_openai_error("Unknown or unregistered device_id", code="device_not_registered"), status=403)
+        events, next_cursor = self._cloud_sync_store.pull_events(
+            token_data["user_id"], cursor, limit=limit, workspace_id=wf
+        )
+        self._cloud_sync_store.update_cursor(token_data["user_id"], device_id, next_cursor)
         return web.json_response({"events": events, "next_cursor": next_cursor, "has_more": len(events) >= limit})
 
     async def _handle_health_detailed(self, request: "web.Request") -> "web.Response":
@@ -1094,6 +1318,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 "tool_progress_events": True,
                 "session_continuity_header": "X-Hermes-Session-Id",
                 "cors": bool(self._cors_origins),
+                "lingtan_cloud_sync": True,
             },
             "endpoints": {
                 "health": {"method": "GET", "path": "/health"},
@@ -1105,6 +1330,14 @@ class APIServerAdapter(BasePlatformAdapter):
                 "run_status": {"method": "GET", "path": "/v1/runs/{run_id}"},
                 "run_events": {"method": "GET", "path": "/v1/runs/{run_id}/events"},
                 "run_stop": {"method": "POST", "path": "/v1/runs/{run_id}/stop"},
+                "lingtan_auth_register": {"method": "POST", "path": "/v1/auth/register"},
+                "lingtan_auth_login": {"method": "POST", "path": "/v1/auth/login"},
+                "lingtan_sync_push": {"method": "POST", "path": "/v1/sync/push"},
+                "lingtan_sync_pull": {"method": "GET", "path": "/v1/sync/pull"},
+                "lingtan_workspaces_list": {"method": "GET", "path": "/v1/workspaces"},
+                "lingtan_collector_tasks": {"method": "GET", "path": "/v1/collector/tasks"},
+                "lingtan_collector_tasks_create": {"method": "POST", "path": "/v1/collector/tasks"},
+                "lingtan_reports_list": {"method": "GET", "path": "/v1/reports"},
             },
         })
 
@@ -3042,6 +3275,14 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_post("/v1/devices/heartbeat", self._handle_device_heartbeat)
             self._app.router.add_post("/v1/sync/push", self._handle_sync_push)
             self._app.router.add_get("/v1/sync/pull", self._handle_sync_pull)
+            self._app.router.add_get("/v1/workspaces", self._handle_workspaces_list)
+            self._app.router.add_get("/v1/collector/tasks", self._handle_collector_tasks_list)
+            self._app.router.add_post("/v1/collector/tasks", self._handle_collector_tasks_create)
+            self._app.router.add_patch("/v1/collector/tasks/{task_id}", self._handle_collector_task_patch)
+            self._app.router.add_post("/v1/collector/tasks/{task_id}/run", self._handle_collector_task_run)
+            self._app.router.add_post("/v1/reports", self._handle_reports_create)
+            self._app.router.add_get("/v1/reports", self._handle_reports_list)
+            self._app.router.add_get("/v1/reports/{report_id}", self._handle_report_get)
             self._app.router.add_get("/v1/models", self._handle_models)
             self._app.router.add_get("/v1/capabilities", self._handle_capabilities)
             self._app.router.add_post("/v1/chat/completions", self._handle_chat_completions)

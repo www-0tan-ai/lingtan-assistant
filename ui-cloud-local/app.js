@@ -1,5 +1,7 @@
 const state = {
   accessToken: localStorage.getItem("wb_access_token") || "",
+  deviceId: localStorage.getItem("wb_device_id") || "",
+  pullCursor: Number(localStorage.getItem("wb_sync_cursor")) || 0,
   email: "",
 };
 
@@ -16,6 +18,14 @@ function setLoginError(text = "") {
   if (el) el.textContent = text;
 }
 
+function syncHeaders(includeDevice) {
+  const h = {};
+  if (includeDevice && state.deviceId) {
+    h["X-Lingtan-Device-Id"] = state.deviceId;
+  }
+  return h;
+}
+
 function showApp() {
   $("login-screen").classList.add("hidden");
   $("app-shell").classList.remove("hidden");
@@ -27,7 +37,11 @@ function showLogin() {
 }
 
 async function api(path, options = {}) {
-  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  const headers = {
+    ...syncHeaders(Boolean(options.attachDevice)),
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
+  };
   if (options.auth && state.accessToken) {
     headers.Authorization = `Bearer ${state.accessToken}`;
   }
@@ -146,11 +160,16 @@ async function bindDevice() {
     const data = await api("/v1/devices/register", {
       method: "POST",
       auth: true,
+      attachDevice: false,
       body: JSON.stringify({
         name: "lingtan-web",
         os: navigator.platform || "web",
       }),
     });
+    if (data.device_id) {
+      state.deviceId = data.device_id;
+      localStorage.setItem("wb_device_id", state.deviceId);
+    }
     setPanel("account-result", data);
   } catch (err) {
     setPanel("account-result", `绑定失败: ${err.message}`);
@@ -159,6 +178,10 @@ async function bindDevice() {
 
 async function pushSample() {
   try {
+    if (!state.deviceId) {
+      setPanel("sync-result", "请先在「账号中心」点击「绑定设备」，再推送或拉取同步。");
+      return;
+    }
     const event = {
       event_id: `evt-${Date.now()}`,
       object_type: "analysis_report",
@@ -170,7 +193,8 @@ async function pushSample() {
     const data = await api("/v1/sync/push", {
       method: "POST",
       auth: true,
-      body: JSON.stringify({ events: [event] }),
+      attachDevice: true,
+      body: JSON.stringify({ events: [event], device_id: state.deviceId }),
     });
     setPanel("sync-result", data);
   } catch (err) {
@@ -180,10 +204,22 @@ async function pushSample() {
 
 async function pullEvents() {
   try {
-    const data = await api("/v1/sync/pull?cursor=0&limit=50", {
+    if (!state.deviceId) {
+      setPanel("sync-result", "请先在「账号中心」绑定设备后再拉取同步。");
+      return;
+    }
+    const qs = new URLSearchParams({
+      cursor: String(state.pullCursor),
+      limit: "50",
+      device_id: state.deviceId,
+    });
+    const data = await api(`/v1/sync/pull?${qs.toString()}`, {
       method: "GET",
       auth: true,
+      attachDevice: true,
     });
+    state.pullCursor = data.next_cursor ?? state.pullCursor;
+    localStorage.setItem("wb_sync_cursor", String(state.pullCursor));
     setPanel("sync-result", data);
   } catch (err) {
     setPanel("sync-result", `拉取失败: ${err.message}`);
@@ -205,6 +241,10 @@ function bindTabs() {
 function logout() {
   state.accessToken = "";
   localStorage.removeItem("wb_access_token");
+  localStorage.removeItem("wb_device_id");
+  localStorage.removeItem("wb_sync_cursor");
+  state.deviceId = "";
+  state.pullCursor = 0;
   showLogin();
 }
 

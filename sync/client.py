@@ -27,6 +27,12 @@ class ResilientCloudSync:
         self.store = store or LocalSyncStore()
 
     def enqueue(self, event: Dict[str, Any]) -> bool:
+        from sync.outbound_policy import LingtanOutboundBlocked, load_lingtan_outbound_policy
+
+        pol = load_lingtan_outbound_policy()
+        ok, reason = pol.event_allowed(event)
+        if not ok:
+            raise LingtanOutboundBlocked(reason)
         return self.store.enqueue_event(event)
 
     def flush_outbox(
@@ -37,7 +43,14 @@ class ResilientCloudSync:
         backoff_floor: float = 0.8,
         backoff_cap: float = 300.0,
     ) -> Dict[str, Any]:
+        from sync.outbound_policy import (
+            is_permanent_outbound_rejection,
+            load_lingtan_outbound_policy,
+            partition_upload_events,
+        )
+
         nap = sleep_fn or time.sleep
+        policy = load_lingtan_outbound_policy()
         rows_meta = self.store.list_outbox_rows(limit=max_rows)
         if not rows_meta:
             return {"flushed": 0, "pending": 0}
@@ -52,12 +65,58 @@ class ResilientCloudSync:
             id_by_event[eid] = int(row["id"])
             rid_by_event[eid] = rid
 
+        allowed, policy_pre = partition_upload_events(payloads, policy)
+        dropped_perm: List[str] = []
+
+        def _rej_reason_dict(r: Dict[str, Any]) -> str:
+            return str(r.get("reason") or "rejected")
+
+        for r in policy_pre:
+            eid_key = str(r.get("event_id") or "").strip()
+            rs = _rej_reason_dict(r)
+            if not eid_key or not is_permanent_outbound_rejection(rs):
+                continue
+            row_id_delete = rid_by_event.get(eid_key)
+            if row_id_delete is None:
+                continue
+            self.store.delete_outbox_id(row_id_delete)
+            dropped_perm.append(eid_key)
+
+        if not allowed:
+            rest = len(self.store.list_outbox_rows(limit=max_rows))
+            return {
+                "flushed": 0,
+                "pending": rest,
+                "policy_precheck_rejected": policy_pre,
+                "removed_policy_permanent": dropped_perm,
+                "accepted": [],
+            }
+
+        transient_policy = {"outbound_disabled", "version_conflict", "invalid_workspace"}
+        for r in policy_pre:
+            eid_key = str(r.get("event_id") or "").strip()
+            rs = _rej_reason_dict(r)
+            if not eid_key or is_permanent_outbound_rejection(rs):
+                continue
+            rid = rid_by_event.get(eid_key)
+            if rid is None:
+                continue
+            n = 0
+            for row in rows_meta:
+                if int(row["id"]) == rid:
+                    n = int(row["attempts"] or 0) + 1
+                    break
+            self.store.mark_outbox_attempt(rid, max(1, n), rs)
+            if rs in transient_policy:
+                nap(min(backoff_cap, backoff_floor * (2 ** min(n, 10))))
+
         try:
-            resp = self.remote.push_events(payloads)
+            resp = self.remote.push_events(allowed)
         except Exception as exc:
             err_msg = str(exc)
+            still_rows = self.store.list_outbox_rows(limit=max_rows)
             max_n = 0
-            for row in rows_meta:
+            for row in still_rows:
                 rid = int(row["id"])
                 n = int(row["attempts"] or 0) + 1
                 max_n = max(max_n, n)
@@ -65,10 +124,17 @@ class ResilientCloudSync:
             delay = min(backoff_cap, backoff_floor * (2 ** min(max_n, 16)))
             delay *= 0.85 + random.random() * 0.3
             nap(delay)
-            return {"flushed": 0, "pending": len(rows_meta), "error": err_msg}
+            rest = len(self.store.list_outbox_rows(limit=max_rows))
+            return {
+                "flushed": 0,
+                "pending": rest,
+                "error": err_msg,
+                "policy_precheck_rejected": policy_pre,
+                "removed_policy_permanent": dropped_perm,
+            }
 
         accepted = set(str(x) for x in resp.get("accepted_event_ids") or [])
-        rejected = resp.get("rejected") or []
+        rejected = list(resp.get("rejected") or [])
         deleted = 0
         for eid in accepted:
             row_id = id_by_event.get(eid)
@@ -77,14 +143,13 @@ class ResilientCloudSync:
                 deleted += 1
 
         rej_by_eid = {str(x.get("event_id")): x for x in rejected if isinstance(x, dict)}
-        transient = {"version_conflict", "invalid_workspace"}
 
         err_msg: Optional[str] = None
 
         def _rej_reason(item: Dict[str, Any]) -> str:
             return str(item.get("reason") or "rejected")
 
-        for ev in payloads:
+        for ev in allowed:
             eid = str(ev.get("event_id"))
             rej = rej_by_eid.get(eid)
             if rej is None or eid in accepted:
@@ -100,13 +165,15 @@ class ResilientCloudSync:
                     break
             if n is None:
                 n = 1
-            fatal = reason not in transient
-            if fatal:
-                self.store.delete_outbox_id(rid)
-                err_msg = err_msg or f"fatal:{reason}:{eid}"
-            else:
+            transient_srv = {"version_conflict", "invalid_workspace"}
+            if reason in transient_srv:
                 self.store.mark_outbox_attempt(rid, n, reason)
                 nap(min(backoff_cap, backoff_floor * (2 ** min(n, 10))))
+            elif is_permanent_outbound_rejection(reason):
+                self.store.delete_outbox_id(rid)
+            else:
+                self.store.delete_outbox_id(rid)
+                err_msg = err_msg or f"fatal:{reason}:{eid}"
 
         remaining = len(self.store.list_outbox_rows(limit=max_rows))
         summary: Dict[str, Any] = {
@@ -115,6 +182,8 @@ class ResilientCloudSync:
             "rejected": rejected,
             "next_cursor": resp.get("next_cursor"),
             "pending": remaining,
+            "policy_precheck_rejected": policy_pre,
+            "removed_policy_permanent": dropped_perm,
         }
         if err_msg:
             summary["error"] = err_msg

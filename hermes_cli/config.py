@@ -1204,6 +1204,15 @@ DEFAULT_CONFIG = {
         "backup_keep": 5,
     },
 
+    # LingtanAssistant cloud/local sync outbound policy (client + API server gates).
+    # See sync/outbound_policy.py for semantics and LINGTAN_SYNC_* env overrides.
+    "lingtan_sync": {
+        "outbound_enabled": True,
+        "require_explicit_allow": False,
+        "blocked_object_types": [],
+        "max_event_json_bytes": 524288,
+    },
+
     # Config schema version - bump this when adding new required fields
     "_config_version": 23,
 }
@@ -2277,6 +2286,28 @@ OPTIONAL_ENV_VARS = {
     "HERMES_EPHEMERAL_SYSTEM_PROMPT": {
         "description": "Ephemeral system prompt injected at API-call time (never persisted to sessions)",
         "prompt": "Ephemeral system prompt",
+        "url": None,
+        "password": False,
+        "category": "setting",
+    },
+    # LingtanAssistant cloud/local sync outbound gates (prefer lingtan_sync.* in config.yaml).
+    "LINGTAN_SYNC_OUTBOUND_ENABLED": {
+        "description": "Globally enables or disables uploads to Lingtan sync endpoints from this machine (mirrors outbound_enabled)",
+        "prompt": "Lingtan sync outbound enabled",
+        "url": None,
+        "password": False,
+        "category": "setting",
+    },
+    "LINGTAN_SYNC_REQUIRE_EXPLICIT_ALLOW": {
+        "description": "When enabled, sync events must set cloud_allow: true before upload",
+        "prompt": "Lingtan sync require explicit cloud_allow",
+        "url": None,
+        "password": False,
+        "category": "setting",
+    },
+    "LINGTAN_SYNC_MAX_EVENT_JSON_BYTES": {
+        "description": "Max serialized JSON bytes for event payload enforced before outbound",
+        "prompt": "Lingtan sync max payload bytes",
         "url": None,
         "password": False,
         "category": "setting",

@@ -674,6 +674,15 @@ class CloudSyncStore:
             conn.commit()
         return {"event_id": evt_id, "event_version": nv, "server_version": server_ver}
 
+    def get_last_event_version(self, user_id: str) -> int:
+        """Return the newest global event_version for a user (0 if none)."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(event_version), 0) AS mv FROM sync_events WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+            return int(row["mv"] or 0)
+
     def push_events(
         self,
         user_id: str,

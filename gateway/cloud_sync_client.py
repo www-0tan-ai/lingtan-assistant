@@ -134,11 +134,36 @@ class CloudSyncClient:
         *,
         device_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        from sync.outbound_policy import load_lingtan_outbound_policy, partition_upload_events
+
         did = device_id or self.device_id
-        payload: Dict[str, Any] = {"events": events}
+        policy = load_lingtan_outbound_policy()
+        allowed, pre_rejected = partition_upload_events(list(events), policy)
+        payload: Dict[str, Any]
+        if not allowed:
+            return {
+                "accepted_event_ids": [],
+                "rejected": list(pre_rejected),
+                "next_cursor": 0,
+                "client_policy_blocked_all": True,
+            }
+        payload = {"events": allowed}
         if did:
             payload["device_id"] = str(did).strip()
-        return self._request("POST", "/v1/sync/push", payload, auth=True, include_device_header=True)
+        data = self._request(
+            "POST",
+            "/v1/sync/push",
+            payload,
+            auth=True,
+            include_device_header=True,
+        )
+        merged = dict(data)
+        srv_rej = merged.get("rejected")
+        if isinstance(srv_rej, list):
+            merged["rejected"] = list(pre_rejected) + srv_rej
+        else:
+            merged["rejected"] = list(pre_rejected)
+        return merged
 
     def pull_events(
         self,

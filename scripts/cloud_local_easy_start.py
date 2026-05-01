@@ -75,6 +75,8 @@ def cmd_push_sample(args: argparse.Namespace) -> int:
                 "op": "upsert",
                 "payload": payload,
                 "occurred_at": int(time.time()),
+                "visibility": "aggregate_ok",
+                "cloud_allow": True,
             }
         ],
     )
@@ -99,8 +101,14 @@ def cmd_enqueue_sample(args: argparse.Namespace) -> int:
         "op": "upsert",
         "payload": {"summary": args.summary, "source": "outbox_enqueue", "created_at": int(time.time())},
         "occurred_at": int(time.time()),
+        "visibility": "aggregate_ok",
+        "cloud_allow": True,
     }
-    ok = hub.enqueue(evt)
+    try:
+        ok = hub.enqueue(evt)
+    except Exception as exc:
+        print(json.dumps({"enqueued": False, "error": str(exc), "event": evt}, ensure_ascii=False))
+        return 1
     print(json.dumps({"enqueued": ok, "event": evt}, ensure_ascii=False))
     return 0
 

@@ -1204,14 +1204,25 @@ class APIServerAdapter(BasePlatformAdapter):
         events = body.get("events")
         if not isinstance(events, list):
             return web.json_response(_openai_error("Missing or invalid events list", code="invalid_events"), status=400)
-        ws_default = token_data["user_id"] and self._cloud_sync_store.get_default_workspace_id(token_data["user_id"])
+        from sync.outbound_policy import load_lingtan_outbound_policy, partition_upload_events
+
+        policy = load_lingtan_outbound_policy()
+        sanitized, pre_rejected = partition_upload_events(events, policy)
+        uid = token_data["user_id"]
+        if not sanitized:
+            tail = self._cloud_sync_store.get_last_event_version(uid)
+            return web.json_response(
+                {"accepted_event_ids": [], "rejected": pre_rejected, "next_cursor": tail, "server_policy_blocked_all": True}
+            )
+        ws_default = self._cloud_sync_store.get_default_workspace_id(uid)
         accepted, rejected, next_cursor = self._cloud_sync_store.push_events(
-            token_data["user_id"],
-            events,
+            uid,
+            sanitized,
             device_id=device_id,
             default_workspace_id=ws_default,
         )
-        return web.json_response({"accepted_event_ids": accepted, "rejected": rejected, "next_cursor": next_cursor})
+        merged_rejected = list(pre_rejected) + list(rejected)
+        return web.json_response({"accepted_event_ids": accepted, "rejected": merged_rejected, "next_cursor": next_cursor})
 
     async def _handle_sync_pull(self, request: "web.Request") -> "web.Response":
         """GET /v1/sync/pull — fetch remote events after cursor."""

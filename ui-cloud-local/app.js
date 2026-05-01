@@ -189,6 +189,8 @@ async function pushSample() {
       op: "upsert",
       payload: { summary: "来自灵碳助手 UI 的样例同步数据" },
       occurred_at: Math.floor(Date.now() / 1000),
+      visibility: "aggregate_ok",
+      cloud_allow: true,
     };
     const data = await api("/v1/sync/push", {
       method: "POST",

@@ -10,12 +10,12 @@ class CloudSyncClient:
 
     def __init__(
         self,
-        base_url: str,
+        base_url: Optional[str] = None,
         access_token: Optional[str] = None,
         timeout: int = 15,
         device_id: Optional[str] = None,
     ):
-        self.base_url = base_url.rstrip("/")
+        self.base_url = (base_url or "").strip().rstrip("/")
         self.access_token = access_token
         self.timeout = timeout
         self.device_id = device_id
@@ -26,6 +26,13 @@ class CloudSyncClient:
     def set_device_id(self, device_id: Optional[str]) -> None:
         self.device_id = device_id
 
+    def _require_base_url(self) -> None:
+        if not self.base_url:
+            raise RuntimeError(
+                "Lingtan cloud URL is not configured. Set lingtan_sync.cloud_base_url in config.yaml "
+                "or LINGTAN_SYNC_CLOUD_BASE_URL / CLOUD_SYNC_BASE_URL in the environment."
+            )
+
     def _request(
         self,
         method: str,
@@ -35,6 +42,7 @@ class CloudSyncClient:
         *,
         include_device_header: bool = False,
     ) -> Dict[str, Any]:
+        self._require_base_url()
         url = f"{self.base_url}{path}"
         headers = {"Content-Type": "application/json"}
         if auth and self.access_token:
@@ -147,6 +155,18 @@ class CloudSyncClient:
                 "next_cursor": 0,
                 "client_policy_blocked_all": True,
             }
+        if not self.base_url:
+            no_ep: List[Dict[str, Any]] = []
+            for x in allowed:
+                eid = str(x.get("event_id") or "").strip()
+                if eid:
+                    no_ep.append({"event_id": eid, "reason": "no_cloud_endpoint"})
+            return {
+                "accepted_event_ids": [],
+                "rejected": list(pre_rejected) + no_ep,
+                "next_cursor": 0,
+                "skipped": "no_cloud_endpoint",
+            }
         payload = {"events": allowed}
         if did:
             payload["device_id"] = str(did).strip()
@@ -173,6 +193,13 @@ class CloudSyncClient:
         *,
         workspace_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        if not self.base_url:
+            return {
+                "events": [],
+                "next_cursor": cursor,
+                "has_more": False,
+                "skipped": "no_cloud_endpoint",
+            }
         did = device_id or self.device_id
         query: Dict[str, str] = {"cursor": str(cursor), "limit": str(limit)}
         if did:

@@ -1207,6 +1207,8 @@ DEFAULT_CONFIG = {
     # LingtanAssistant cloud/local sync outbound policy (client + API server gates).
     # See sync/outbound_policy.py for semantics and LINGTAN_SYNC_* env overrides.
     "lingtan_sync": {
+        "profile": "hybrid",
+        "cloud_base_url": "",
         "outbound_enabled": True,
         "require_explicit_allow": False,
         "blocked_object_types": [],
@@ -2291,6 +2293,13 @@ OPTIONAL_ENV_VARS = {
         "category": "setting",
     },
     # LingtanAssistant cloud/local sync outbound gates (prefer lingtan_sync.* in config.yaml).
+    "LINGTAN_SYNC_CLOUD_BASE_URL": {
+        "description": "Lingtan cloud sync API base URL (overrides lingtan_sync.cloud_base_url in config)",
+        "prompt": "Lingtan sync cloud base URL",
+        "url": None,
+        "password": False,
+        "category": "setting",
+    },
     "LINGTAN_SYNC_OUTBOUND_ENABLED": {
         "description": "Globally enables or disables uploads to Lingtan sync endpoints from this machine (mirrors outbound_enabled)",
         "prompt": "Lingtan sync outbound enabled",

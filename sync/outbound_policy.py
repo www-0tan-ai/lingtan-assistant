@@ -1,21 +1,32 @@
 """
 Lingtan cloud-sync outbound guards (local-first data stays off the cloud).
 
-Validated on both the Python client path and sync/push handlers so rogue
-clients cannot bypass local policy with a handcrafted HTTP POST.
+Runs in **two layers** so one codebase supports **offline / hybrid / online**:
+
+- **Queue (disk / outbox)** — ``event_allowed(..., for_transmit=False)``: privacy +
+  shape rules only. ``outbound_enabled`` does **not** block enqueue; hybrid users can
+  accumulate events while offline and flush when a cloud URL is available.
+- **Transmit (HTTP)** — ``event_allowed(..., for_transmit=True)``: same as queue plus
+  ``outbound_enabled`` (and later: empty ``cloud_base_url`` is handled in clients).
+
+**Profiles** (``lingtan_sync.profile``) set soft defaults via ``setdefault`` so explicit
+user YAML always wins:
+
+- ``offline`` — default ``outbound_enabled: false`` (no network sync unless overridden).
+- ``online`` — default ``outbound_enabled: true``.
+- ``hybrid`` — default ``outbound_enabled: true``; local queue + best-effort sync.
 
 Event envelope (recommended fields):
 
 - ``visibility``: ``"aggregate_ok"`` for safe summaries; ``"local_only"`` blocks upload.
-- ``local_only``: when true, blocks upload regardless of visibility.
-- ``cloud_allow``: when ``lingtan_sync.require_explicit_allow`` is true, must be
-  true for upload to proceed.
+- ``local_only``: when true, blocks queue and transmit.
+- ``cloud_allow``: when ``lingtan_sync.require_explicit_allow`` is true, must be true.
 
-Environment overrides (take precedence after merge defaults→user YAML):
+Environment:
 
-- ``LINGTAN_SYNC_OUTBOUND_ENABLED`` — ``0``, ``false``, ``no``, ``off`` disables all outbound uploads.
-- ``LINGTAN_SYNC_REQUIRE_EXPLICIT_ALLOW`` — ``1``, ``true`` enables explicit-allow gate.
-- ``LINGTAN_SYNC_MAX_EVENT_JSON_BYTES`` — override max JSON size for the serialized ``payload`` field.
+- ``LINGTAN_SYNC_OUTBOUND_ENABLED`` / ``LINGTAN_SYNC_REQUIRE_EXPLICIT_ALLOW`` /
+  ``LINGTAN_SYNC_MAX_EVENT_JSON_BYTES`` — see load function.
+- ``LINGTAN_SYNC_CLOUD_BASE_URL`` or ``CLOUD_SYNC_BASE_URL`` — Lingtan API base URL.
 """
 
 from __future__ import annotations
@@ -29,8 +40,8 @@ from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 _TRUE = frozenset({"1", "true", "yes", "on"})
 _FALSE = frozenset({"0", "false", "no", "off"})
 
+_PROFILES = frozenset({"offline", "hybrid", "online"})
 
-# Outbox rows that violate these codes should not be retried endlessly.
 PERMANENT_OUTBOUND_REJECTION_CODES = frozenset(
     {
         "local_only",
@@ -43,7 +54,6 @@ PERMANENT_OUTBOUND_REJECTION_CODES = frozenset(
         "invalid_event",
     },
 )
-
 
 _METADATA_KEYS_DROP = frozenset(
     {
@@ -68,6 +78,32 @@ def sanitize_sync_event_for_upload(ev: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in ev.items() if k not in _METADATA_KEYS_DROP and not str(k).startswith("_")}
 
 
+def resolve_lingtan_cloud_base_url(explicit: Optional[str] = None) -> str:
+    """Resolve cloud API base URL: explicit arg > env > config ``lingtan_sync.cloud_base_url``."""
+    if explicit is not None and str(explicit).strip():
+        return str(explicit).strip().rstrip("/")
+    for key in ("LINGTAN_SYNC_CLOUD_BASE_URL", "CLOUD_SYNC_BASE_URL"):
+        raw = os.getenv(key, "") or ""
+        if str(raw).strip():
+            return str(raw).strip().rstrip("/")
+    try:
+        from hermes_cli.config import load_config
+
+        sec = (load_config() or {}).get("lingtan_sync") or {}
+        if isinstance(sec, dict):
+            url = str(sec.get("cloud_base_url") or "").strip()
+            if url:
+                return url.rstrip("/")
+    except Exception:
+        pass
+    return ""
+
+
+def cloud_upload_ready(base_url: str, policy: "LingtanOutboundPolicy") -> bool:
+    """True when policy allows transmit and a non-empty base URL is configured."""
+    return bool(str(base_url or "").strip()) and policy.outbound_enabled
+
+
 def _parse_env_bool(value: Optional[str], default: Optional[bool] = None) -> Optional[bool]:
     if value is None or not str(value).strip():
         return default
@@ -83,6 +119,17 @@ def _norm_object_type(raw: Any) -> str:
     return str(raw or "").strip().lower()
 
 
+def _apply_profile_defaults(blob: Dict[str, Any]) -> str:
+    prof = str(blob.get("profile") or "hybrid").strip().lower()
+    if prof not in _PROFILES:
+        prof = "hybrid"
+    if prof == "offline":
+        blob.setdefault("outbound_enabled", False)
+    elif prof == "online":
+        blob.setdefault("outbound_enabled", True)
+    return prof
+
+
 @dataclass(frozen=True)
 class LingtanOutboundPolicy:
     """Resolved outbound policy merged from defaults, config, and env."""
@@ -91,10 +138,15 @@ class LingtanOutboundPolicy:
     require_explicit_allow: bool
     blocked_object_types: FrozenSet[str]
     max_event_json_bytes: int
+    profile: str = "hybrid"
 
-    def event_allowed(self, event: Dict[str, Any]) -> Tuple[bool, str]:
-        """Return (True, '') or (False, rejection_code)."""
-        if not self.outbound_enabled:
+    def event_allowed(self, event: Dict[str, Any], *, for_transmit: bool = False) -> Tuple[bool, str]:
+        """Return (True, '') or (False, rejection_code).
+
+        * for_transmit=False — rules for **local outbox** (privacy / schema); offline-friendly.
+        * for_transmit=True — same checks plus ``outbound_enabled`` (actually hitting the cloud).
+        """
+        if for_transmit and not self.outbound_enabled:
             return False, "outbound_disabled"
 
         reason = self._blocked_by_envelope(event)
@@ -119,7 +171,6 @@ class LingtanOutboundPolicy:
             return "local_only"
         vis_raw = event.get("visibility")
         vis = str(vis_raw).strip().lower()
-        # Treat unknown visibility as legacy / permissive (deny_only local_only explicitly).
         if vis == "local_only":
             return "visibility_local_only"
         if bool(event.get("contains_raw_private_data")) is True:
@@ -148,6 +199,8 @@ def _defaults_from_builtin() -> Dict[str, Any]:
     except Exception:
         pass
     return {
+        "profile": "hybrid",
+        "cloud_base_url": "",
         "outbound_enabled": True,
         "require_explicit_allow": False,
         "blocked_object_types": [],
@@ -156,7 +209,6 @@ def _defaults_from_builtin() -> Dict[str, Any]:
 
 
 def load_lingtan_outbound_policy() -> LingtanOutboundPolicy:
-    """Merge ``lingtan_sync`` from user config + environment overrides."""
     blob = _defaults_from_builtin()
     try:
         from hermes_cli.config import load_config
@@ -168,6 +220,8 @@ def load_lingtan_outbound_policy() -> LingtanOutboundPolicy:
                 blob[k] = v
     except Exception:
         pass
+
+    profile = _apply_profile_defaults(blob)
 
     outbound = blob.get("outbound_enabled")
     enabled = outbound if isinstance(outbound, bool) else str(outbound).lower() not in {"0", "false", "no", "off"}
@@ -210,6 +264,7 @@ def load_lingtan_outbound_policy() -> LingtanOutboundPolicy:
         require_explicit_allow=req_explicit,
         blocked_object_types=blocked,
         max_event_json_bytes=max(0, max_bytes),
+        profile=profile,
     )
 
 
@@ -224,7 +279,7 @@ def partition_upload_events(
             rejected.append({"reason": "invalid_event"})
             continue
         eid = str(item.get("event_id") or "").strip()
-        ok, reason = policy.event_allowed(item)
+        ok, reason = policy.event_allowed(item, for_transmit=True)
         if ok:
             bare = {k: v for k, v in item.items() if not str(k).startswith("_")}
             allowed.append(sanitize_sync_event_for_upload(bare))
@@ -239,8 +294,10 @@ __all__ = [
     "LingtanOutboundPolicy",
     "LingtanOutboundBlocked",
     "PERMANENT_OUTBOUND_REJECTION_CODES",
+    "cloud_upload_ready",
     "is_permanent_outbound_rejection",
-    "sanitize_sync_event_for_upload",
     "load_lingtan_outbound_policy",
     "partition_upload_events",
+    "resolve_lingtan_cloud_base_url",
+    "sanitize_sync_event_for_upload",
 ]

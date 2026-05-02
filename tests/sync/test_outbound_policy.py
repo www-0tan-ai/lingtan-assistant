@@ -1,6 +1,18 @@
 from sync.outbound_policy import LingtanOutboundPolicy, partition_upload_events, sanitize_sync_event_for_upload
 
 
+def test_outbound_disabled_blocks_transmit_not_queue_defaults() -> None:
+    pol = LingtanOutboundPolicy(
+        outbound_enabled=False,
+        require_explicit_allow=False,
+        blocked_object_types=frozenset(),
+        max_event_json_bytes=1024,
+    )
+    ev = {"event_id": "x", "object_type": "x", "object_id": "1", "payload": {}}
+    assert pol.event_allowed(ev, for_transmit=False)[0] is True
+    assert pol.event_allowed(ev, for_transmit=True) == (False, "outbound_disabled")
+
+
 def test_local_only_blocks() -> None:
     pol = LingtanOutboundPolicy(
         outbound_enabled=True,

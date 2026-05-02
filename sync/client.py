@@ -12,14 +12,17 @@ class ResilientCloudSync:
 
     def __init__(
         self,
-        base_url: str,
+        base_url: Optional[str] = None,
         access_token: Optional[str] = None,
         device_id: Optional[str] = None,
         store: Optional[LocalSyncStore] = None,
         timeout: int = 15,
     ):
+        from sync.outbound_policy import resolve_lingtan_cloud_base_url
+
+        resolved = resolve_lingtan_cloud_base_url(base_url)
         self.remote = CloudSyncClient(
-            base_url,
+            resolved,
             access_token=access_token,
             timeout=timeout,
             device_id=device_id,
@@ -30,7 +33,7 @@ class ResilientCloudSync:
         from sync.outbound_policy import LingtanOutboundBlocked, load_lingtan_outbound_policy
 
         pol = load_lingtan_outbound_policy()
-        ok, reason = pol.event_allowed(event)
+        ok, reason = pol.event_allowed(event, for_transmit=False)
         if not ok:
             raise LingtanOutboundBlocked(reason)
         return self.store.enqueue_event(event)
@@ -44,6 +47,7 @@ class ResilientCloudSync:
         backoff_cap: float = 300.0,
     ) -> Dict[str, Any]:
         from sync.outbound_policy import (
+            cloud_upload_ready,
             is_permanent_outbound_rejection,
             load_lingtan_outbound_policy,
             partition_upload_events,
@@ -54,6 +58,17 @@ class ResilientCloudSync:
         rows_meta = self.store.list_outbox_rows(limit=max_rows)
         if not rows_meta:
             return {"flushed": 0, "pending": 0}
+
+        if not cloud_upload_ready(self.remote.base_url, policy):
+            rest = len(self.store.list_outbox_rows(limit=max_rows))
+            return {
+                "flushed": 0,
+                "pending": rest,
+                "skipped": "offline_or_no_endpoint",
+                "profile": policy.profile,
+                "cloud_upload_enabled": policy.outbound_enabled,
+                "cloud_base_url_configured": bool(self.remote.base_url),
+            }
 
         payloads: List[Dict[str, Any]] = []
         id_by_event: Dict[str, int] = {}
@@ -92,7 +107,7 @@ class ResilientCloudSync:
                 "accepted": [],
             }
 
-        transient_policy = {"outbound_disabled", "version_conflict", "invalid_workspace"}
+        transient_policy = {"outbound_disabled", "no_cloud_endpoint", "version_conflict", "invalid_workspace"}
         for r in policy_pre:
             eid_key = str(r.get("event_id") or "").strip()
             rs = _rej_reason_dict(r)
@@ -133,6 +148,17 @@ class ResilientCloudSync:
                 "removed_policy_permanent": dropped_perm,
             }
 
+        if resp.get("skipped") == "no_cloud_endpoint":
+            rest = len(self.store.list_outbox_rows(limit=max_rows))
+            return {
+                "flushed": 0,
+                "pending": rest,
+                "skipped": "no_cloud_endpoint",
+                "rejected": list(resp.get("rejected") or []),
+                "policy_precheck_rejected": policy_pre,
+                "removed_policy_permanent": dropped_perm,
+            }
+
         accepted = set(str(x) for x in resp.get("accepted_event_ids") or [])
         rejected = list(resp.get("rejected") or [])
         deleted = 0
@@ -165,7 +191,7 @@ class ResilientCloudSync:
                     break
             if n is None:
                 n = 1
-            transient_srv = {"version_conflict", "invalid_workspace"}
+            transient_srv = {"version_conflict", "invalid_workspace", "no_cloud_endpoint"}
             if reason in transient_srv:
                 self.store.mark_outbox_attempt(rid, n, reason)
                 nap(min(backoff_cap, backoff_floor * (2 ** min(n, 10))))
@@ -196,9 +222,26 @@ class ResilientCloudSync:
         *,
         workspace_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        from sync.outbound_policy import cloud_upload_ready, load_lingtan_outbound_policy
+
         cur = self.store.get_cursor(cursor_key)
+        policy = load_lingtan_outbound_policy()
+        if not cloud_upload_ready(self.remote.base_url, policy):
+            return {
+                "events": [],
+                "next_cursor": cur,
+                "has_more": False,
+                "skipped": "offline_or_no_endpoint",
+                "profile": policy.profile,
+                "cloud_upload_enabled": policy.outbound_enabled,
+                "cloud_base_url_configured": bool(self.remote.base_url),
+            }
+
         resp = self.remote.pull_events(cursor=cur, limit=limit, workspace_id=workspace_id)
         nxt = int(resp.get("next_cursor") or cur)
+        if resp.get("skipped") == "no_cloud_endpoint":
+            return resp
+
         if nxt >= cur:
             self.store.set_cursor(cursor_key, nxt)
         return resp

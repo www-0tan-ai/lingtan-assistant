@@ -11,7 +11,6 @@ Usage examples:
 
 import argparse
 import json
-import os
 import platform
 import time
 import uuid
@@ -21,7 +20,9 @@ from sync.client import ResilientCloudSync
 
 
 def _default_base_url() -> str:
-    return os.getenv("CLOUD_SYNC_BASE_URL", "http://127.0.0.1:8642")
+    from sync.outbound_policy import resolve_lingtan_cloud_base_url
+
+    return resolve_lingtan_cloud_base_url(None) or "http://127.0.0.1:8642"
 
 
 def cmd_init(args: argparse.Namespace) -> int:

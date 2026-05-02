@@ -40,7 +40,9 @@
       <button class="task-create">+ 新建任务</button>
 
       <div class="menu-list">
-        <button class="menu-item nav-btn active" data-tab="chat">🧠 智能助手</button>
+        <button class="menu-item nav-btn active" data-tab="skills">📚 Skills 目录</button>
+        <button class="menu-item nav-btn" data-tab="agents">🧩 Sunagent</button>
+        <button class="menu-item nav-btn" data-tab="chat">🧠 智能助手</button>
         <button class="menu-item nav-btn" data-tab="sync">☁️ 云端同步</button>
         <button class="menu-item nav-btn" data-tab="account">👤 账号中心</button>
       </div>
@@ -52,18 +54,42 @@
     </aside>
 
     <main class="main-stage">
-      <header class="hero">
+      <header class="hero hero-compact">
         <div class="bot-avatar">◉</div>
-        <h1>Claw Your Ideas Into Reality</h1>
-        <p>Triggered Anywhere, Completed Locally</p>
-        <div class="mode-switch">
-          <button class="mode-pill active">代码开发</button>
-          <button class="mode-pill">日常办公</button>
-          <button class="mode-pill">任务执行</button>
-        </div>
+        <h1>端云一体灵碳工作台</h1>
+        <p>Skills · 多代理编排 · Hermes SessionDB 会话</p>
       </header>
 
-      <section id="tab-chat" class="tab active glass">
+      <section id="tab-skills" class="tab glass active">
+        <div class="toolbar">
+          <div class="section-title">Hermes Skills（磁盘发现 + 内置 skills/）</div>
+          <button type="button" id="refresh-skills" class="small-btn">刷新</button>
+        </div>
+        <p class="muted">以下为当前环境可用的全部 SKILL；可在 config.yaml <code>skills.disabled</code> 中停用。</p>
+        <pre id="skills-panel" class="panel scroll-panel">登录后加载…</pre>
+      </section>
+
+      <section id="tab-agents" class="tab glass">
+        <div class="toolbar">
+          <div class="section-title">Sunagent — 启用中的子代理</div>
+          <button type="button" id="refresh-agents" class="small-btn">刷新</button>
+        </div>
+        <p class="muted">
+          用户发话时勾选「Sunagent」，主代理会自动分解任务并使用 <code>delegate_task</code> 分配给下列专家；
+          roster 默认来自 config <code>lingtan_ui.agents</code>。
+        </p>
+        <pre id="agents-panel" class="panel scroll-panel">登录后加载…</pre>
+      </section>
+
+      <section id="tab-chat" class="tab glass">
+        <div class="toolbar wrap">
+          <label class="inline-check">
+            <input type="checkbox" id="chk-sunagent" />
+            <span>Sunagent（子代理拆解执行）</span>
+          </label>
+          <button type="button" id="new-chat" class="small-btn ghost">新建对话</button>
+          <span id="session-hint" class="muted mono"></span>
+        </div>
         <div id="chat-log" class="chat-log"></div>
         <div class="quick-actions">
           <button class="quick-chip" data-prompt="请分析我今天的本地数据趋势">📈 数据分析</button>

@@ -15,6 +15,10 @@ Exposes an HTTP server with endpoints:
 - GET  /health                     — health check
 - GET  /health/detailed            — rich status for cross-container dashboard probing
 
+- GET  /v1/assistant/skills        — SKILL.md-derived catalogue (+ enabled flags)
+- GET  /v1/assistant/agents         — Sunagent roster (configured specialists)
+- GET  /v1/assistant/conversation   — SessionDB messages for ``session_id`` query param
+
 Any OpenAI-compatible frontend (Open WebUI, LobeChat, LibreChat,
 AnythingLLM, NextChat, ChatBox, etc.) can connect to hermes-agent
 through this adapter by pointing at http://localhost:8642/v1.
@@ -63,6 +67,80 @@ MAX_REQUEST_BYTES = 1_000_000  # 1 MB default limit for POST bodies
 CHAT_COMPLETIONS_SSE_KEEPALIVE_SECONDS = 30.0
 MAX_NORMALIZED_TEXT_LENGTH = 65_536  # 64 KB cap for normalized content parts
 MAX_CONTENT_LIST_SIZE = 1_000  # Max items when content is an array
+
+SUNAGENT_ORCHESTRATION_PROLOGUE = (
+    "You are the Sunagent orchestrator for this turn: decompose the user's request into "
+    "focused subtasks and assign them via delegate_task when beneficial."
+)
+
+
+def _load_enabled_lingtan_ui_agents() -> List[Dict[str, Any]]:
+    """Roster entries for Sunagent delegation (subset of lingtan_ui.agents)."""
+    try:
+        from hermes_cli.config import load_config
+
+        lu = (load_config() or {}).get("lingtan_ui") or {}
+    except Exception:
+        lu = {}
+    if not isinstance(lu, dict):
+        lu = {}
+    raw = lu.get("agents") or []
+    out: List[Dict[str, Any]] = []
+    if not isinstance(raw, list):
+        return out
+    for a in raw:
+        if not isinstance(a, dict) or a.get("enabled") is False:
+            continue
+        aid = str(a.get("id") or "").strip()
+        if not aid:
+            continue
+        out.append(
+            {
+                "id": aid,
+                "name": str(a.get("name") or aid),
+                "description": str(a.get("description") or ""),
+                "toolsets": [str(x).strip() for x in (a.get("toolsets") or []) if str(x).strip()],
+            }
+        )
+    return out
+
+
+def _build_sunagent_ephemeral_system_extension() -> str:
+    """Extra system text layered for sunagent chat requests."""
+    roster = _load_enabled_lingtan_ui_agents()
+    try:
+        from hermes_cli.config import load_config
+
+        lu = (load_config() or {}).get("lingtan_ui") or {}
+    except Exception:
+        lu = {}
+    if not isinstance(lu, dict):
+        lu = {}
+    extra = str(lu.get("sunagent_prompt_extra") or "").strip()
+    if not roster:
+        base = (
+            "Sunagent mode is enabled but lingtan_ui.agents has no enabled specialists. "
+            "Answer normally as a single assistant and do not call delegate_task."
+        )
+        if extra:
+            base = base + "\n\n" + extra
+        return base
+    lines = [
+        SUNAGENT_ORCHESTRATION_PROLOGUE,
+        "",
+        "Specialists (JSON). For each delegate_task choose a specialist and restrict "
+        "toolsets to that specialist's declared list:",
+        json.dumps(roster, ensure_ascii=False),
+        "",
+        "Rules:",
+        "- Use delegate_task with role=\"worker\", a concise goal, and narrowed toolsets.",
+        "- Parallelize independent subtasks when safe.",
+        "- Return one synthesized user-facing reply; no nested orchestration prompts.",
+    ]
+    block = "\n".join(lines)
+    if extra:
+        block = block + "\n\nAdditional product guidance:\n" + extra
+    return block
 
 
 def _normalize_chat_content(
@@ -393,7 +471,11 @@ class ResponseStore:
 
 _CORS_HEADERS = {
     "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key, X-Lingtan-Device-Id",
+    "Access-Control-Allow-Headers": (
+        "Authorization, Content-Type, Idempotency-Key, "
+        "X-Hermes-Session-Id, X-Lingtan-Device-Id, X-Lingtan-Sunagent"
+    ),
+    "Access-Control-Expose-Headers": "X-Hermes-Session-Id",
 }
 
 
@@ -801,6 +883,23 @@ class APIServerAdapter(BasePlatformAdapter):
             except Exception as e:
                 logger.debug("SessionDB unavailable for API server: %s", e)
         return self._session_db
+
+    def _session_continuation_token_ok(self, request: "web.Request") -> bool:
+        auth_header = (request.headers.get("Authorization") or "").strip()
+        if not auth_header.startswith("Bearer "):
+            return False
+        token = auth_header[7:].strip()
+        if not token:
+            return False
+        key = self._api_key or ""
+        if key and hmac.compare_digest(token, key):
+            return True
+        try:
+            if self._cloud_sync_store.resolve_access_token(token) is not None:
+                return True
+        except Exception:
+            pass
+        return False
 
     # ------------------------------------------------------------------
     # Agent creation helper
@@ -1330,6 +1429,9 @@ class APIServerAdapter(BasePlatformAdapter):
                 "session_continuity_header": "X-Hermes-Session-Id",
                 "cors": bool(self._cors_origins),
                 "lingtan_cloud_sync": True,
+                "lingtan_assistant_catalog": True,
+                "sunagent_header": "X-Lingtan-Sunagent",
+                "sunagent_json_field": "sunagent",
             },
             "endpoints": {
                 "health": {"method": "GET", "path": "/health"},
@@ -1349,8 +1451,62 @@ class APIServerAdapter(BasePlatformAdapter):
                 "lingtan_collector_tasks": {"method": "GET", "path": "/v1/collector/tasks"},
                 "lingtan_collector_tasks_create": {"method": "POST", "path": "/v1/collector/tasks"},
                 "lingtan_reports_list": {"method": "GET", "path": "/v1/reports"},
+                "lingtan_assistant_skills": {"method": "GET", "path": "/v1/assistant/skills"},
+                "lingtan_assistant_agents": {"method": "GET", "path": "/v1/assistant/agents"},
+                "lingtan_assistant_conversation": {
+                    "method": "GET",
+                    "path": "/v1/assistant/conversation",
+                    "notes": "Query: session_id=…",
+                },
             },
         })
+
+    async def _handle_assistant_skills(self, request: "web.Request") -> "web.Response":
+        """GET /v1/assistant/skills — list all SKILL.md-derived entries (Hermes catalogue)."""
+        auth_err = self._check_auth_openai_compat(request)
+        if auth_err:
+            return auth_err
+        try:
+            from tools.skills_tool import list_skills_catalog
+
+            payload = list_skills_catalog()
+        except Exception as exc:
+            logger.exception("GET /v1/assistant/skills failed")
+            return web.json_response(_openai_error(str(exc)), status=500)
+        if not payload.get("success"):
+            return web.json_response(
+                _openai_error(str(payload.get("error") or "skills catalog failed")), status=500,
+            )
+        return web.json_response(payload)
+
+    async def _handle_assistant_agents(self, request: "web.Request") -> "web.Response":
+        """GET /v1/assistant/agents — enabled Sunagent roster (lingtan_ui.agents)."""
+        auth_err = self._check_auth_openai_compat(request)
+        if auth_err:
+            return auth_err
+        agents = _load_enabled_lingtan_ui_agents()
+        return web.json_response({"object": "lingtan.agent_roster", "agents": agents, "count": len(agents)})
+
+    async def _handle_assistant_conversation(self, request: "web.Request") -> "web.Response":
+        """GET /v1/assistant/conversation?session_id=… — hydrate OpenAI-ish messages."""
+        auth_err = self._check_auth_openai_compat(request)
+        if auth_err:
+            return auth_err
+        sid = (request.rel_url.query.get("session_id") or "").strip()
+        if not sid or re.search(r"[\r\n\x00]", sid):
+            return web.json_response(
+                {"error": {"message": "Missing or invalid session_id", "type": "invalid_request_error"}},
+                status=400,
+            )
+        db = self._ensure_session_db()
+        if db is None:
+            return web.json_response({"session_id": sid, "messages": [], "warning": "SessionDB unavailable"})
+        try:
+            messages = db.get_messages_as_conversation(sid)
+        except Exception as exc:
+            logger.warning("conversation hydrate failed session=%s: %s", sid, exc)
+            return web.json_response(_openai_error(str(exc)), status=500)
+        return web.json_response({"session_id": sid, "messages": messages})
 
     async def _handle_chat_completions(self, request: "web.Request") -> "web.Response":
         """POST /v1/chat/completions — OpenAI Chat Completions format."""
@@ -1395,6 +1551,14 @@ class APIServerAdapter(BasePlatformAdapter):
                     return _multimodal_validation_error(exc, param=f"messages[{idx}].content")
                 conversation_messages.append({"role": role, "content": content})
 
+        sunagent = bool(body.get("sunagent"))
+        sa_hdr = (request.headers.get("X-Lingtan-Sunagent") or "").strip().lower()
+        if sa_hdr in ("1", "true", "yes", "on"):
+            sunagent = True
+        if sunagent:
+            sun_block = _build_sunagent_ephemeral_system_extension()
+            system_prompt = (system_prompt + "\n\n" + sun_block).strip() if system_prompt else sun_block
+
         # Extract the last user message as the primary input
         user_message: Any = ""
         history = []
@@ -1411,22 +1575,15 @@ class APIServerAdapter(BasePlatformAdapter):
         # Allow caller to continue an existing session by passing X-Hermes-Session-Id.
         # When provided, history is loaded from state.db instead of from the request body.
         #
-        # Security: session continuation exposes conversation history, so it is
-        # only allowed when the API key is configured and the request is
-        # authenticated.  Without this gate, any unauthenticated client could
-        # read arbitrary session history by guessing/enumerating session IDs.
+        # Security: continuation exposes stored history — require an authenticated
+        # Bearer (API_SERVER_KEY value or valid Lingtan cloud access token).
         provided_session_id = request.headers.get("X-Hermes-Session-Id", "").strip()
         if provided_session_id:
-            if not self._api_key:
-                logger.warning(
-                    "Session continuation via X-Hermes-Session-Id rejected: "
-                    "no API key configured.  Set API_SERVER_KEY to enable "
-                    "session continuity."
-                )
+            if not self._session_continuation_token_ok(request):
                 return web.json_response(
                     _openai_error(
-                        "Session continuation requires API key authentication. "
-                        "Configure API_SERVER_KEY to enable this feature."
+                        "Session continuation requires authenticated Bearer token "
+                        "(API_SERVER_KEY match or valid Lingtan access token)."
                     ),
                     status=403,
                 )
@@ -3296,6 +3453,9 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_get("/v1/reports/{report_id}", self._handle_report_get)
             self._app.router.add_get("/v1/models", self._handle_models)
             self._app.router.add_get("/v1/capabilities", self._handle_capabilities)
+            self._app.router.add_get("/v1/assistant/skills", self._handle_assistant_skills)
+            self._app.router.add_get("/v1/assistant/agents", self._handle_assistant_agents)
+            self._app.router.add_get("/v1/assistant/conversation", self._handle_assistant_conversation)
             self._app.router.add_post("/v1/chat/completions", self._handle_chat_completions)
             self._app.router.add_post("/v1/responses", self._handle_responses)
             self._app.router.add_get("/v1/responses/{response_id}", self._handle_get_response)

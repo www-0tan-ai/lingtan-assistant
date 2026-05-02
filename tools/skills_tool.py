@@ -88,6 +88,20 @@ logger = logging.getLogger(__name__)
 HERMES_HOME = get_hermes_home()
 SKILLS_DIR = HERMES_HOME / "skills"
 
+
+def bundled_repo_skills_dir() -> Optional[Path]:
+    """Optional checkout-local ``skills/`` tree (Hermes Agent repo).
+
+    Listed after ``~/.hermes/skills`` so user-installed skills override bundled
+    copies with the same frontmatter ``name``.
+    """
+    try:
+        p = Path(__file__).resolve().parent.parent / "skills"
+        return p if p.is_dir() else None
+    except Exception:
+        return None
+
+
 # Anthropic-recommended limits for progressive disclosure efficiency
 MAX_NAME_LENGTH = 64
 MAX_DESCRIPTION_LENGTH = 1024
@@ -570,6 +584,9 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
     if SKILLS_DIR.exists():
         dirs_to_scan.append(SKILLS_DIR)
     dirs_to_scan.extend(get_external_skills_dirs())
+    _bundled = bundled_repo_skills_dir()
+    if _bundled is not None:
+        dirs_to_scan.append(_bundled)
 
     for scan_dir in dirs_to_scan:
         for skill_md in iter_skill_index_files(scan_dir, "SKILL.md"):
@@ -737,6 +754,24 @@ def skills_list(category: str = None, task_id: str = None) -> str:
 
     except Exception as e:
         return tool_error(str(e), success=False)
+
+
+def list_skills_catalog() -> Dict[str, Any]:
+    """Return every discovered skill plus ``enabled_in_config`` (for HTTP admin UIs)."""
+    try:
+        disabled = _get_disabled_skill_names()
+        skills = _sort_skills(_find_all_skills(skip_disabled=True))
+        for entry in skills:
+            entry["enabled_in_config"] = entry["name"] not in disabled
+        categories = sorted({s.get("category") for s in skills if s.get("category")})
+        return {
+            "success": True,
+            "skills": skills,
+            "categories": list(categories),
+            "count": len(skills),
+        }
+    except Exception as exc:
+        return {"success": False, "skills": [], "categories": [], "count": 0, "error": str(exc)}
 
 
 # ── Plugin skill serving ──────────────────────────────────────────────────

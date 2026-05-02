@@ -3,6 +3,8 @@ const state = {
   deviceId: localStorage.getItem("wb_device_id") || "",
   pullCursor: Number(localStorage.getItem("wb_sync_cursor")) || 0,
   email: "",
+  hermesSessionId: localStorage.getItem("wb_hermes_session_id") || "",
+  sunagent: localStorage.getItem("wb_sunagent") === "1",
 };
 
 function $(id) {
@@ -26,6 +28,51 @@ function syncHeaders(includeDevice) {
   return h;
 }
 
+/** Stable Hermes SessionDB session id — required for persistent multi-turn chat. */
+function ensureHermesSessionId() {
+  if (state.hermesSessionId && String(state.hermesSessionId).trim()) {
+    return String(state.hermesSessionId).trim();
+  }
+  let id = "";
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      id = `web-${crypto.randomUUID()}`;
+    }
+  } catch (_) {
+    id = "";
+  }
+  if (!id) id = `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  state.hermesSessionId = id;
+  localStorage.setItem("wb_hermes_session_id", id);
+  updateSessionHint();
+  return id;
+}
+
+function updateSessionHint() {
+  const el = $("session-hint");
+  if (!el) return;
+  const sid = state.hermesSessionId || "";
+  el.textContent = sid ? `Session: ${sid.slice(0, 38)}…` : "Session: (未创建)";
+}
+
+function messageTextContent(content) {
+  if (content == null) return "";
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((p) => {
+        if (typeof p === "string") return p;
+        if (!p || typeof p !== "object") return "";
+        if (p.text != null) return String(p.text);
+        if (p.input_text != null) return String(p.input_text);
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return String(content);
+}
+
 function showApp() {
   $("login-screen").classList.add("hidden");
   $("app-shell").classList.remove("hidden");
@@ -36,11 +83,15 @@ function showLogin() {
   $("login-screen").classList.remove("hidden");
 }
 
+/**
+ * HTTP helper. Set options.rawResponse to read response headers (e.g. X-Hermes-Session-Id).
+ */
 async function api(path, options = {}) {
   const headers = {
     ...syncHeaders(Boolean(options.attachDevice)),
     "Content-Type": "application/json",
     ...(options.headers || {}),
+    ...(options.extraHeaders || {}),
   };
   if (options.auth && state.accessToken) {
     headers.Authorization = `Bearer ${state.accessToken}`;
@@ -48,7 +99,10 @@ async function api(path, options = {}) {
   const resp = await fetch(path, { ...options, headers });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    throw new Error(data?.error?.message || `HTTP ${resp.status}`);
+    throw new Error(data?.error?.message || data?.error || `HTTP ${resp.status}`);
+  }
+  if (options.rawResponse) {
+    return { data, resp };
   }
   return data;
 }
@@ -61,21 +115,90 @@ function appendMessage(role, content) {
   $("chat-log").scrollTop = $("chat-log").scrollHeight;
 }
 
+function clearChatLog() {
+  const el = $("chat-log");
+  if (el) el.innerHTML = "";
+}
+
+async function loadConversationIntoChat() {
+  if (!state.accessToken || !state.hermesSessionId) return;
+  try {
+    const sid = encodeURIComponent(state.hermesSessionId);
+    const data = await api(`/v1/assistant/conversation?session_id=${sid}`, {
+      auth: true,
+      method: "GET",
+    });
+    clearChatLog();
+    const msgs = data.messages || [];
+    for (const m of msgs) {
+      const role = m.role === "assistant" || m.role === "user" ? m.role : "assistant";
+      const text = messageTextContent(m.content);
+      if (!text.trim() && role === "assistant") continue;
+      appendMessage(role, text || `[${m.role}]`);
+    }
+  } catch (err) {
+    clearChatLog();
+    appendMessage("assistant", `无法加载会话历史（将从此刻起继续记录）：${err.message}`);
+  }
+}
+
+async function refreshSkillsCatalog() {
+  const el = $("skills-panel");
+  if (!el || !state.accessToken) return;
+  el.textContent = "加载中…";
+  try {
+    const data = await api("/v1/assistant/skills", { auth: true, method: "GET" });
+    setPanel("skills-panel", data);
+  } catch (e) {
+    el.textContent = `加载失败: ${e.message}`;
+  }
+}
+
+async function refreshAgentsRoster() {
+  const el = $("agents-panel");
+  if (!el || !state.accessToken) return;
+  el.textContent = "加载中…";
+  try {
+    const data = await api("/v1/assistant/agents", { auth: true, method: "GET" });
+    setPanel("agents-panel", data);
+  } catch (e) {
+    el.textContent = `加载失败: ${e.message}`;
+  }
+}
+
 async function sendChat() {
   const input = $("chat-input");
   const text = input.value.trim();
   if (!text) return;
   input.value = "";
   appendMessage("user", text);
+  const sid = ensureHermesSessionId();
   try {
-    const payload = {
-      model: "assistant-core",
-      messages: [{ role: "user", content: text }],
-      stream: false,
-    };
-    const data = await api("/v1/chat/completions", { method: "POST", body: JSON.stringify(payload) });
+    const extraHeaders = { "X-Hermes-Session-Id": sid };
+    if (state.sunagent) extraHeaders["X-Lingtan-Sunagent"] = "1";
+
+    const { data, resp } = await api("/v1/chat/completions", {
+      method: "POST",
+      auth: true,
+      rawResponse: true,
+      extraHeaders,
+      body: JSON.stringify({
+        model: "assistant-core",
+        messages: [{ role: "user", content: text }],
+        stream: false,
+        sunagent: Boolean(state.sunagent),
+      }),
+    });
+
+    const hdrSid = resp.headers.get("X-Hermes-Session-Id");
+    if (hdrSid && hdrSid.trim()) {
+      state.hermesSessionId = hdrSid.trim();
+      localStorage.setItem("wb_hermes_session_id", state.hermesSessionId);
+      updateSessionHint();
+    }
+
     const msg = data?.choices?.[0]?.message?.content || "（无回复）";
-    appendMessage("assistant", msg);
+    appendMessage("assistant", typeof msg === "string" ? msg : messageTextContent(msg));
   } catch (err) {
     appendMessage("assistant", `请求失败: ${err.message}`);
   }
@@ -108,6 +231,11 @@ async function login() {
     localStorage.setItem("wb_access_token", state.accessToken);
     setPanel("account-result", data);
     showApp();
+    ensureHermesSessionId();
+    updateSessionHint();
+    await refreshSkillsCatalog();
+    await refreshAgentsRoster();
+    await loadConversationIntoChat();
   } catch (err) {
     setPanel("account-result", `登录失败: ${err.message}`);
   }
@@ -132,6 +260,11 @@ async function landingLogin() {
     setPanel("account-result", data);
     setLoginError("");
     showApp();
+    ensureHermesSessionId();
+    updateSessionHint();
+    await refreshSkillsCatalog();
+    await refreshAgentsRoster();
+    await loadConversationIntoChat();
   } catch (err) {
     setLoginError(`登录失败: ${err.message}`);
   }
@@ -236,6 +369,9 @@ function bindTabs() {
       btn.classList.add("active");
       const tab = btn.getAttribute("data-tab");
       document.getElementById(`tab-${tab}`).classList.add("active");
+      if (tab === "skills" && state.accessToken) refreshSkillsCatalog();
+      if (tab === "agents" && state.accessToken) refreshAgentsRoster();
+      if (tab === "chat" && state.accessToken) loadConversationIntoChat();
     });
   });
 }
@@ -245,35 +381,72 @@ function logout() {
   localStorage.removeItem("wb_access_token");
   localStorage.removeItem("wb_device_id");
   localStorage.removeItem("wb_sync_cursor");
+  localStorage.removeItem("wb_hermes_session_id");
+  localStorage.removeItem("wb_sunagent");
   state.deviceId = "";
   state.pullCursor = 0;
+  state.hermesSessionId = "";
+  state.sunagent = false;
+  state.email = "";
+  const chk = $("chk-sunagent");
+  if (chk) chk.checked = false;
+  clearChatLog();
+  updateSessionHint();
   showLogin();
+}
+
+function syncSunagentCheckbox() {
+  const chk = $("chk-sunagent");
+  if (!chk) return;
+  chk.checked = Boolean(state.sunagent);
+  chk.addEventListener("change", () => {
+    state.sunagent = chk.checked;
+    localStorage.setItem("wb_sunagent", state.sunagent ? "1" : "0");
+  });
 }
 
 function init() {
   bindTabs();
+  syncSunagentCheckbox();
+  updateSessionHint();
+
   if (state.accessToken) {
     showApp();
+    ensureHermesSessionId();
+    refreshSkillsCatalog();
+    refreshAgentsRoster();
+    loadConversationIntoChat();
   } else {
     showLogin();
   }
 
-  $("landing-login").addEventListener("click", landingLogin);
-  $("landing-register").addEventListener("click", landingRegister);
-  $("logout-btn").addEventListener("click", logout);
+  $("landing-login")?.addEventListener("click", landingLogin);
+  $("landing-register")?.addEventListener("click", landingRegister);
+  $("logout-btn")?.addEventListener("click", logout);
 
-  $("send-chat").addEventListener("click", sendChat);
-  $("chat-input").addEventListener("keydown", (evt) => {
+  $("send-chat")?.addEventListener("click", sendChat);
+  $("chat-input")?.addEventListener("keydown", (evt) => {
     if (evt.key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
       sendChat();
     }
   });
-  $("register").addEventListener("click", register);
-  $("login").addEventListener("click", login);
-  $("bind-device").addEventListener("click", bindDevice);
-  $("push-sample").addEventListener("click", pushSample);
-  $("pull-events").addEventListener("click", pullEvents);
+
+  $("register")?.addEventListener("click", register);
+  $("login")?.addEventListener("click", login);
+  $("bind-device")?.addEventListener("click", bindDevice);
+  $("push-sample")?.addEventListener("click", pushSample);
+  $("pull-events")?.addEventListener("click", pullEvents);
+  $("refresh-skills")?.addEventListener("click", refreshSkillsCatalog);
+  $("refresh-agents")?.addEventListener("click", refreshAgentsRoster);
+  $("new-chat")?.addEventListener("click", () => {
+    localStorage.removeItem("wb_hermes_session_id");
+    state.hermesSessionId = "";
+    ensureHermesSessionId();
+    clearChatLog();
+    updateSessionHint();
+  });
+
   document.querySelectorAll(".quick-chip").forEach((chip) => {
     chip.addEventListener("click", () => {
       const prompt = chip.getAttribute("data-prompt") || "";
@@ -281,8 +454,9 @@ function init() {
       sendChat();
     });
   });
+
   if (state.accessToken) {
-    setPanel("account-result", "已检测到本地登录态，可直接绑定设备和同步。");
+    setPanel("account-result", "已检测到本地登录态 — Skills / Sunagent / 会话 已就绪。");
   }
 }
 

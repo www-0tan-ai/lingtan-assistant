@@ -1215,6 +1215,34 @@ DEFAULT_CONFIG = {
         "max_event_json_bytes": 524288,
     },
 
+    # LingtanAssistant web UI — Sunagent roster (delegate_task child toolsets).
+    "lingtan_ui": {
+        "sunagent_prompt_extra": "",
+        "agents": [
+            {
+                "id": "engineering",
+                "name": "工程与代码",
+                "description": "读写文件、补丁、搜索仓库、终端与代码执行子任务",
+                "toolsets": ["file", "terminal", "code_execution"],
+                "enabled": True,
+            },
+            {
+                "id": "research",
+                "name": "检索与浏览器",
+                "description": "网页检索、摘录与浏览器取证类子任务",
+                "toolsets": ["web", "browser"],
+                "enabled": True,
+            },
+            {
+                "id": "office",
+                "name": "规划与技能",
+                "description": "待办拆分、会话检索、按需查阅 Skills 手册类子任务",
+                "toolsets": ["skills", "todo", "session_search"],
+                "enabled": True,
+            },
+        ],
+    },
+
     # Config schema version - bump this when adding new required fields
     "_config_version": 23,
 }

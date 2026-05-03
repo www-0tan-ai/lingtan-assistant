@@ -16,7 +16,7 @@ Exposes an HTTP server with endpoints:
 - GET  /health/detailed            — rich status for cross-container dashboard probing
 
 - GET  /v1/assistant/skills        — SKILL.md-derived catalogue (+ enabled flags)
-- GET  /v1/assistant/agents         — Sunagent roster (configured specialists)
+- GET  /v1/assistant/agents         — Subagent roster (configured delegate_task workers)
 - GET  /v1/assistant/conversation   — SessionDB messages for ``session_id`` query param
 
 Any OpenAI-compatible frontend (Open WebUI, LobeChat, LibreChat,
@@ -68,14 +68,14 @@ CHAT_COMPLETIONS_SSE_KEEPALIVE_SECONDS = 30.0
 MAX_NORMALIZED_TEXT_LENGTH = 65_536  # 64 KB cap for normalized content parts
 MAX_CONTENT_LIST_SIZE = 1_000  # Max items when content is an array
 
-SUNAGENT_ORCHESTRATION_PROLOGUE = (
-    "You are the Sunagent orchestrator for this turn: decompose the user's request into "
-    "focused subtasks and assign them via delegate_task when beneficial."
+SUBAGENT_ORCHESTRATION_PROLOGUE = (
+    "You are the subagent orchestrator for this turn: decompose the user's request into "
+    "focused subtasks and assign them via delegate_task (Hermes subagents) when beneficial."
 )
 
 
 def _load_enabled_lingtan_ui_agents() -> List[Dict[str, Any]]:
-    """Roster entries for Sunagent delegation (subset of lingtan_ui.agents)."""
+    """Roster entries for subagent delegation (subset of lingtan_ui.agents)."""
     try:
         from hermes_cli.config import load_config
 
@@ -105,8 +105,8 @@ def _load_enabled_lingtan_ui_agents() -> List[Dict[str, Any]]:
     return out
 
 
-def _build_sunagent_ephemeral_system_extension() -> str:
-    """Extra system text layered for sunagent chat requests."""
+def _build_subagent_ephemeral_system_extension() -> str:
+    """Extra system text layered when subagent / multi-delegate mode is enabled."""
     roster = _load_enabled_lingtan_ui_agents()
     try:
         from hermes_cli.config import load_config
@@ -116,17 +116,17 @@ def _build_sunagent_ephemeral_system_extension() -> str:
         lu = {}
     if not isinstance(lu, dict):
         lu = {}
-    extra = str(lu.get("sunagent_prompt_extra") or "").strip()
+    extra = str(lu.get("subagent_prompt_extra") or lu.get("sunagent_prompt_extra") or "").strip()
     if not roster:
         base = (
-            "Sunagent mode is enabled but lingtan_ui.agents has no enabled specialists. "
+            "Subagent orchestration is enabled but lingtan_ui.agents has no enabled workers. "
             "Answer normally as a single assistant and do not call delegate_task."
         )
         if extra:
             base = base + "\n\n" + extra
         return base
     lines = [
-        SUNAGENT_ORCHESTRATION_PROLOGUE,
+        SUBAGENT_ORCHESTRATION_PROLOGUE,
         "",
         "Specialists (JSON). For each delegate_task choose a specialist and restrict "
         "toolsets to that specialist's declared list:",
@@ -473,7 +473,7 @@ _CORS_HEADERS = {
     "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": (
         "Authorization, Content-Type, Idempotency-Key, "
-        "X-Hermes-Session-Id, X-Lingtan-Device-Id, X-Lingtan-Sunagent"
+        "X-Hermes-Session-Id, X-Lingtan-Device-Id, X-Lingtan-Subagent, X-Lingtan-Sunagent"
     ),
     "Access-Control-Expose-Headers": "X-Hermes-Session-Id",
 }
@@ -1430,8 +1430,10 @@ class APIServerAdapter(BasePlatformAdapter):
                 "cors": bool(self._cors_origins),
                 "lingtan_cloud_sync": True,
                 "lingtan_assistant_catalog": True,
-                "sunagent_header": "X-Lingtan-Sunagent",
-                "sunagent_json_field": "sunagent",
+                "subagent_delegate_mode_header": "X-Lingtan-Subagent",
+                "subagent_delegate_mode_header_legacy": "X-Lingtan-Sunagent",
+                "subagent_delegate_mode_body_field": "subagent",
+                "subagent_delegate_mode_body_field_legacy": "sunagent",
             },
             "endpoints": {
                 "health": {"method": "GET", "path": "/health"},
@@ -1480,7 +1482,7 @@ class APIServerAdapter(BasePlatformAdapter):
         return web.json_response(payload)
 
     async def _handle_assistant_agents(self, request: "web.Request") -> "web.Response":
-        """GET /v1/assistant/agents — enabled Sunagent roster (lingtan_ui.agents)."""
+        """GET /v1/assistant/agents — enabled subagent roster (lingtan_ui.agents for delegate_task)."""
         auth_err = self._check_auth_openai_compat(request)
         if auth_err:
             return auth_err
@@ -1551,13 +1553,14 @@ class APIServerAdapter(BasePlatformAdapter):
                     return _multimodal_validation_error(exc, param=f"messages[{idx}].content")
                 conversation_messages.append({"role": role, "content": content})
 
-        sunagent = bool(body.get("sunagent"))
-        sa_hdr = (request.headers.get("X-Lingtan-Sunagent") or "").strip().lower()
-        if sa_hdr in ("1", "true", "yes", "on"):
-            sunagent = True
-        if sunagent:
-            sun_block = _build_sunagent_ephemeral_system_extension()
-            system_prompt = (system_prompt + "\n\n" + sun_block).strip() if system_prompt else sun_block
+        subagent_mode = bool(body.get("subagent")) or bool(body.get("sunagent"))
+        sa_hdr = (request.headers.get("X-Lingtan-Subagent") or "").strip().lower()
+        sun_hdr_legacy = (request.headers.get("X-Lingtan-Sunagent") or "").strip().lower()
+        if sa_hdr in ("1", "true", "yes", "on") or sun_hdr_legacy in ("1", "true", "yes", "on"):
+            subagent_mode = True
+        if subagent_mode:
+            sub_block = _build_subagent_ephemeral_system_extension()
+            system_prompt = (system_prompt + "\n\n" + sub_block).strip() if system_prompt else sub_block
 
         # Extract the last user message as the primary input
         user_message: Any = ""

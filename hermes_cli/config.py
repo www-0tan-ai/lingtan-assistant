@@ -1215,9 +1215,9 @@ DEFAULT_CONFIG = {
         "max_event_json_bytes": 524288,
     },
 
-    # LingtanAssistant web UI — Sunagent roster (delegate_task child toolsets).
+    # LingtanAssistant web UI — subagent roster for delegate_task (child toolsets).
     "lingtan_ui": {
-        "sunagent_prompt_extra": "",
+        "subagent_prompt_extra": "",
         "agents": [
             {
                 "id": "engineering",

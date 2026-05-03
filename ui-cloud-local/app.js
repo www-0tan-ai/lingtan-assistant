@@ -1,10 +1,21 @@
+/** One-time: rename mistaken "sunagent" localStorage key → subagent delegate mode. */
+function migrateSubagentLocalStorage() {
+  if (localStorage.getItem("wb_subagent") != null) return;
+  const legacy = localStorage.getItem("wb_sunagent");
+  if (legacy != null) {
+    localStorage.setItem("wb_subagent", legacy);
+    localStorage.removeItem("wb_sunagent");
+  }
+}
+migrateSubagentLocalStorage();
+
 const state = {
   accessToken: localStorage.getItem("wb_access_token") || "",
   deviceId: localStorage.getItem("wb_device_id") || "",
   pullCursor: Number(localStorage.getItem("wb_sync_cursor")) || 0,
   email: "",
   hermesSessionId: localStorage.getItem("wb_hermes_session_id") || "",
-  sunagent: localStorage.getItem("wb_sunagent") === "1",
+  subagentDelegateMode: localStorage.getItem("wb_subagent") === "1",
 };
 
 function $(id) {
@@ -175,7 +186,7 @@ async function sendChat() {
   const sid = ensureHermesSessionId();
   try {
     const extraHeaders = { "X-Hermes-Session-Id": sid };
-    if (state.sunagent) extraHeaders["X-Lingtan-Sunagent"] = "1";
+    if (state.subagentDelegateMode) extraHeaders["X-Lingtan-Subagent"] = "1";
 
     const { data, resp } = await api("/v1/chat/completions", {
       method: "POST",
@@ -186,7 +197,7 @@ async function sendChat() {
         model: "assistant-core",
         messages: [{ role: "user", content: text }],
         stream: false,
-        sunagent: Boolean(state.sunagent),
+        subagent: Boolean(state.subagentDelegateMode),
       }),
     });
 
@@ -382,32 +393,33 @@ function logout() {
   localStorage.removeItem("wb_device_id");
   localStorage.removeItem("wb_sync_cursor");
   localStorage.removeItem("wb_hermes_session_id");
+  localStorage.removeItem("wb_subagent");
   localStorage.removeItem("wb_sunagent");
   state.deviceId = "";
   state.pullCursor = 0;
   state.hermesSessionId = "";
-  state.sunagent = false;
+  state.subagentDelegateMode = false;
   state.email = "";
-  const chk = $("chk-sunagent");
+  const chk = $("chk-subagent-delegate");
   if (chk) chk.checked = false;
   clearChatLog();
   updateSessionHint();
   showLogin();
 }
 
-function syncSunagentCheckbox() {
-  const chk = $("chk-sunagent");
+function syncSubagentDelegateCheckbox() {
+  const chk = $("chk-subagent-delegate");
   if (!chk) return;
-  chk.checked = Boolean(state.sunagent);
+  chk.checked = Boolean(state.subagentDelegateMode);
   chk.addEventListener("change", () => {
-    state.sunagent = chk.checked;
-    localStorage.setItem("wb_sunagent", state.sunagent ? "1" : "0");
+    state.subagentDelegateMode = chk.checked;
+    localStorage.setItem("wb_subagent", state.subagentDelegateMode ? "1" : "0");
   });
 }
 
 function init() {
   bindTabs();
-  syncSunagentCheckbox();
+  syncSubagentDelegateCheckbox();
   updateSessionHint();
 
   if (state.accessToken) {
@@ -456,7 +468,7 @@ function init() {
   });
 
   if (state.accessToken) {
-    setPanel("account-result", "已检测到本地登录态 — Skills / Sunagent / 会话 已就绪。");
+    setPanel("account-result", "已检测到本地登录态 — Skills / 子代理 / 会话 已就绪。");
   }
 }
 

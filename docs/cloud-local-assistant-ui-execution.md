@@ -1,55 +1,40 @@
-# 灵碳 Web UI · 能力与执行清单（Skills / Sunagent / 真实会话）
+# 灵碳 Web UI · 能力与执行清单（Skills / 子代理(subagent) / 真实会话）
 
-## 1. 目标（来自需求）
+## 1. 目标（与用户表述对照）
 
-| 诉求 | 预期行为 | 验收 |
-|------|----------|------|
-| Skills 展示区 | UI 罗列**当前环境里能发现的全部 Skill**（含仓库内置 `skills/` 与用户目录，标注是否在配置里启用） | 「Skills」 Tab 可调 API 拉到完整列表并可滚动查看 |
-| Agent 模块 | 展示 **`lingtan_ui.agents`** 中**当前启用**的专家代理 | 「Agents」Tab 仅显示 `enabled: true` |
-| Sunagent（子代理编排） | 用户发话时可选开启：由**编排代理**按需调用 `delegate_task`，把子任务派给配置里不同 toolsets 的**子代理** | 聊天请求带 `sunagent: true`，模型可使用 `delegate_task`（依赖 `hermes-api-server` 默认含 delegation） |
-| 真实对话记录 | 服务端 **SessionDB (`state.db`)** 持久化多轮上下文；前端用 **固定 `X-Hermes-Session-Id`** 续聊，并可拉取历史渲染 | 刷新页面后仍能加载同一 session 的对话；服务端 `hermes sessions` 可见 |
+| 你的意图 | 本项目实现 | 验收 |
+|----------|------------|------|
+| **灵碳里有 subagent**（非笔误 Sunagent） | 复用 Hermes 已有 **`delegate_task`**：spawn 子 `AIAgent`，与 TUI/gateway 的子代理一致 | 勾选「子代理模式」后服务端在临时 system 中注入编排说明 + roster |
+| **子代理在界面上列出，和 Skills 一样** | 左侧 **「子代理」** Tab：`GET /v1/assistant/agents` 返回 `lingtan_ui.agents` 中 **enabled** 的条目，UI 用与 Skills 相同的 **`pre` JSON 面板 + 刷新按钮** | 与「Skills 目录」Tab 交互一致 |
+| **Skills 全部展示** | `GET /v1/assistant/skills` → `list_skills_catalog()`（含 `skills/` 与 `~/.hermes/skills` 等） | Skills Tab |
+| **真实多轮会话** | `X-Hermes-Session-Id` + SessionDB + `GET /v1/assistant/conversation` | 刷新后仍可拉历史 |
 
-## 2. 技术决策
+## 2. 术语
 
-- **列表数据来源**：Python 侧 `tools/skills_tool.py` 发现逻辑 + 追加扫描仓库根目录 **`skills/`**（与用户 `~/.hermes/skills` 去重合并，同名优先用户侧）。
-- **Agent  roster**：不做硬编码运行时注册表；以 **`DEFAULT_CONFIG["lingtan_ui"]["agents"]`** 为默认值，可由用户 `config.yaml` 合并覆盖。
-- **编排提示**：`/v1/chat/completions` 在 `sunagent: true` 或 `X-Lingtan-Sunagent: 1` 时在 **临时 system** 附加 Sunagent 说明与 JSON roster。
-- **会话门禁**：原先仅 `API_SERVER_KEY` 存在时才允许 `X-Hermes-Session-Id` 续聊；现扩展为：**Bearer 与 `API_SERVER_KEY` 匹配，或 Bearer 为有效 Lingtan access token**，即可续聊（仍拒绝完全匿名环境下的 session 头枚举）。
+- **Subagent / 子代理**：Hermes `tools/delegate_tool.py` → `delegate_task` 产生的独立子 agent（隔离上下文与 toolsets）。
+- **Roster（本 UI 列表）**：只是 **配置里声明可派任务的专家档案**（id、name、toolsets），**不是**运行时「正在跑的子进程」列表；运行中的子代理会话由模型在回合内创建，Web 端不单独罗列进程。
 
-## 3. API 增量
+## 3. API（子代理模式）
 
-| Method | Path | 说明 |
-|--------|------|------|
-| GET | `/v1/assistant/skills` | 全量 Skill 目录（含 `enabled_in_config`） |
-| GET | `/v1/assistant/agents` | 启用中的 Sunagent 子代理清单 |
-| GET | `/v1/assistant/conversation` | Query `session_id`，返回 OpenAI 形 `messages[]` |
+| 条件 | 说明 |
+|------|------|
+| JSON body | `subagent: true`（**仍接受**旧字段 `sunagent: true` 以兼容） |
+| 请求头 | `X-Lingtan-Subagent: 1`（**仍接受**旧头 `X-Lingtan-Sunagent: 1`） |
+| 能力发现 | `GET /v1/capabilities` → `subagent_delegate_mode_*` 与 `*_legacy` |
 
-以上与 `/v1/chat/completions` 相同鉴权：**`Authorization: Bearer`**（API key 或 Lingtan JWT）。
+编排提示读取 `lingtan_ui.subagent_prompt_extra`；若仍存在旧键 **`sunagent_prompt_extra`** 也会回退读取。
 
-## 4. Web UI
+## 4. 配置
 
-- **Tab**：Skills / Agents / （原）智能助手 / 云端同步 / 账号。
-- **状态**：`localStorage`：`wb_access_token`、`wb_hermes_session_id`、`wb_device_id`、`wb_sunagent`。
-- **新对话**：重置 `wb_hermes_session_id`，清空聊天面板。
-- **发送**：附带 `X-Hermes-Session-Id`、`X-Lingtan-Sunagent`（按需）；读响应头 `X-Hermes-Session-Id` 回填。
+- 默认 roster：`DEFAULT_CONFIG["lingtan_ui"]["agents"]`，用户可在 `config.yaml` 的 **`lingtan_ui`** 下合并覆盖。
+- 附加说明：`lingtan_ui.subagent_prompt_extra`（字符串，拼在编排模板后）。
 
-## 5. 配置示例（可选）
+## 5. Web UI 状态键
 
-```yaml
-lingtan_ui:
-  agents:
-    - id: coder
-      name: 代码与仓库
-      description: 读写代码、补丁、终端构建
-      toolsets: [file, terminal, debugging]
-      enabled: true
-```
+- `wb_subagent`：是否开启子代理模式（`1` / 删除即关）。曾误用 `wb_sunagent` 的浏览器会在启动时 **自动迁移** 到 `wb_subagent`。
 
-（`toolsets` 必须使用 `toolsets.py` 中存在的工具集名称；可参考 `DEFAULT_CONFIG["lingtan_ui"]`。）
+## 6. 边界
 
-## 6. 风险与边界
-
-- **插件技能**：`namespace:skill` 形式的插件技能未合并进本目录 API（会话内仍可用 `skills_list`）。
-- **模型是否真的会 delegate**：取决于模型能力与提示；编排提示为软性约束。
-- **Skill 特别多**：Skills Tab 只做列表摘要，不提供全文（全文仍通过 `skill_view` 工具 / CLI）。
-- **多用户 session 隔离**：当前 session id 由客户端随机生成并在服务端存消息；不靠 user_id 绑表（若要强隔离需在 SessionDB 层按 user_id 分区）。
+- 是否在每一轮 **真的** 调用 `delegate_task` 由 **模型** 决定；模板为软引导。
+- `/v1/assistant/agents` 展示的是 **配置的子代理专员列表**，不是运行时任务看板。
+- 插件 `namespace:skill` 未并进 Skills 目录 API（见旧版说明）；子代理 roster 与 Skills 无关。

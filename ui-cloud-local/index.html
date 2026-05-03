@@ -41,7 +41,7 @@
 
       <div class="menu-list">
         <button class="menu-item nav-btn active" data-tab="skills">📚 Skills 目录</button>
-        <button class="menu-item nav-btn" data-tab="agents">🧩 Sunagent</button>
+        <button class="menu-item nav-btn" data-tab="agents">🧩 子代理</button>
         <button class="menu-item nav-btn" data-tab="chat">🧠 智能助手</button>
         <button class="menu-item nav-btn" data-tab="sync">☁️ 云端同步</button>
         <button class="menu-item nav-btn" data-tab="account">👤 账号中心</button>
@@ -57,7 +57,7 @@
       <header class="hero hero-compact">
         <div class="bot-avatar">◉</div>
         <h1>端云一体灵碳工作台</h1>
-        <p>Skills · 多代理编排 · Hermes SessionDB 会话</p>
+        <p>Skills 目录 · 子代理(delegate_task) · Hermes SessionDB 会话</p>
       </header>
 
       <section id="tab-skills" class="tab glass active">
@@ -71,12 +71,13 @@
 
       <section id="tab-agents" class="tab glass">
         <div class="toolbar">
-          <div class="section-title">Sunagent — 启用中的子代理</div>
+          <div class="section-title">子代理 roster（Hermes delegate_task）</div>
           <button type="button" id="refresh-agents" class="small-btn">刷新</button>
         </div>
         <p class="muted">
-          用户发话时勾选「Sunagent」，主代理会自动分解任务并使用 <code>delegate_task</code> 分配给下列专家；
-          roster 默认来自 config <code>lingtan_ui.agents</code>。
+          与左侧「Skills 目录」相同：以下为当前启用的<strong>委派子代理</strong>配置列表（可供查阅）。
+          在对话中勾选「子代理模式」后，主代理会按需调用 <code>delegate_task</code> spawn 子 agent；
+          列表来自 config <code>lingtan_ui.agents</code>。
         </p>
         <pre id="agents-panel" class="panel scroll-panel">登录后加载…</pre>
       </section>
@@ -84,8 +85,8 @@
       <section id="tab-chat" class="tab glass">
         <div class="toolbar wrap">
           <label class="inline-check">
-            <input type="checkbox" id="chk-sunagent" />
-            <span>Sunagent（子代理拆解执行）</span>
+            <input type="checkbox" id="chk-subagent-delegate" />
+            <span>子代理模式（delegate_task 多专家拆解）</span>
           </label>
           <button type="button" id="new-chat" class="small-btn ghost">新建对话</button>
           <span id="session-hint" class="muted mono"></span>

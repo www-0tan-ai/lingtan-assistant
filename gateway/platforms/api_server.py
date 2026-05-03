@@ -15,9 +15,10 @@ Exposes an HTTP server with endpoints:
 - GET  /health                     — health check
 - GET  /health/detailed            — rich status for cross-container dashboard probing
 
-- GET  /v1/assistant/skills        — SKILL.md-derived catalogue (+ enabled flags)
-- GET  /v1/assistant/agents         — Subagent roster (configured delegate_task workers)
-- GET  /v1/assistant/conversation   — SessionDB messages for ``session_id`` query param
+- GET  /v1/assistant/skills                — SKILL.md-derived catalogue (+ enabled flags)
+- GET  /v1/assistant/agents               — Subagent roster (configured delegate_task workers)
+- GET  /v1/assistant/conversation         — SessionDB messages for ``session_id`` query param
+- GET  /v1/assistant/chat-session/default — Lingtan-account default Hermes SessionDB thread id
 
 Any OpenAI-compatible frontend (Open WebUI, LobeChat, LibreChat,
 AnythingLLM, NextChat, ChatBox, etc.) can connect to hermes-agent
@@ -623,6 +624,18 @@ def _derive_chat_session_id(
     return f"api-{digest}"
 
 
+def _lingtan_default_chat_session_id(user_id: str) -> str:
+    """Stable Hermes SessionDB thread id for a Lingtan user's default web-assistant chat.
+
+    Same logical conversation survives fresh browsers (no reliance on stored ``web-*`` IDs).
+    """
+    uid = str(user_id or "").strip()
+    if not uid:
+        raise ValueError("user_id required")
+    slug = hashlib.sha256(f"lingtan-assistant:default-chat:{uid}".encode("utf-8")).hexdigest()[:28]
+    return f"lingtan-{slug}"
+
+
 _CRON_AVAILABLE = False
 try:
     from cron.jobs import (
@@ -900,6 +913,55 @@ class APIServerAdapter(BasePlatformAdapter):
         except Exception:
             pass
         return False
+
+    def _cloud_user_id_from_bearer_openai_compat(self, request: "web.Request") -> Optional[str]:
+        """Return Lingtan cloud ``user_id`` when Bearer is a user access token (not API_SERVER_KEY).
+
+        Used to scope reads/writes against account-stable ``lingtan-*`` Hermes sessions.
+        """
+        auth_header = (request.headers.get("Authorization") or "").strip()
+        if not auth_header.startswith("Bearer "):
+            return None
+        token = auth_header[7:].strip()
+        if not token:
+            return None
+        key = self._api_key or ""
+        if key and hmac.compare_digest(token, key):
+            return None
+        try:
+            token_data = self._cloud_sync_store.resolve_access_token(token)
+        except Exception:
+            return None
+        if not token_data:
+            return None
+        uid = str(token_data.get("user_id") or "").strip()
+        return uid or None
+
+    def _enforce_lingtan_assigned_session_ownership(
+        self,
+        request: "web.Request",
+        session_id: str,
+    ) -> Optional["web.Response"]:
+        """Reject Lingtan JWT access to ``lingtan-…`` sessions that aren't this user's default."""
+        sid = str(session_id or "").strip()
+        if not sid.startswith("lingtan-"):
+            return None
+        cloud_uid = self._cloud_user_id_from_bearer_openai_compat(request)
+        if cloud_uid is None:
+            return None
+        try:
+            expected = _lingtan_default_chat_session_id(cloud_uid)
+        except ValueError:
+            return web.json_response(_openai_error("Invalid session subject.", code="session_forbidden"), status=403)
+        if sid != expected:
+            return web.json_response(
+                _openai_error(
+                    "This Lingtan-assigned Hermes session belongs to another account.",
+                    code="session_forbidden",
+                ),
+                status=403,
+            )
+        return None
 
     # ------------------------------------------------------------------
     # Agent creation helper
@@ -1430,6 +1492,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 "cors": bool(self._cors_origins),
                 "lingtan_cloud_sync": True,
                 "lingtan_assistant_catalog": True,
+                "lingtan_default_chat_session_endpoint": "/v1/assistant/chat-session/default",
                 "subagent_delegate_mode_header": "X-Lingtan-Subagent",
                 "subagent_delegate_mode_header_legacy": "X-Lingtan-Sunagent",
                 "subagent_delegate_mode_body_field": "subagent",
@@ -1455,6 +1518,11 @@ class APIServerAdapter(BasePlatformAdapter):
                 "lingtan_reports_list": {"method": "GET", "path": "/v1/reports"},
                 "lingtan_assistant_skills": {"method": "GET", "path": "/v1/assistant/skills"},
                 "lingtan_assistant_agents": {"method": "GET", "path": "/v1/assistant/agents"},
+                "lingtan_assistant_chat_session_default": {
+                    "method": "GET",
+                    "path": "/v1/assistant/chat-session/default",
+                    "notes": "Lingtan user access token only — returns persistent default Hermes SessionDB session id.",
+                },
                 "lingtan_assistant_conversation": {
                     "method": "GET",
                     "path": "/v1/assistant/conversation",
@@ -1489,6 +1557,20 @@ class APIServerAdapter(BasePlatformAdapter):
         agents = _load_enabled_lingtan_ui_agents()
         return web.json_response({"object": "lingtan.agent_roster", "agents": agents, "count": len(agents)})
 
+    async def _handle_assistant_chat_session_default(self, request: "web.Request") -> "web.Response":
+        """GET /v1/assistant/chat-session/default — Lingtan-account default Hermes SessionDB thread."""
+        token_data, err = self._require_user_auth(request)
+        if err is not None:
+            return err
+        uid = str((token_data or {}).get("user_id") or "").strip()
+        if not uid:
+            return web.json_response(_openai_error("Missing user identity on token.", code="invalid_token"), status=403)
+        try:
+            sid = _lingtan_default_chat_session_id(uid)
+        except ValueError:
+            return web.json_response(_openai_error("Invalid user identity."), status=403)
+        return web.json_response({"object": "lingtan.chat_session", "kind": "default", "session_id": sid})
+
     async def _handle_assistant_conversation(self, request: "web.Request") -> "web.Response":
         """GET /v1/assistant/conversation?session_id=… — hydrate OpenAI-ish messages."""
         auth_err = self._check_auth_openai_compat(request)
@@ -1500,6 +1582,9 @@ class APIServerAdapter(BasePlatformAdapter):
                 {"error": {"message": "Missing or invalid session_id", "type": "invalid_request_error"}},
                 status=400,
             )
+        sec = self._enforce_lingtan_assigned_session_ownership(request, sid)
+        if sec is not None:
+            return sec
         db = self._ensure_session_db()
         if db is None:
             return web.json_response({"session_id": sid, "messages": [], "warning": "SessionDB unavailable"})
@@ -1597,6 +1682,9 @@ class APIServerAdapter(BasePlatformAdapter):
                     status=400,
                 )
             session_id = provided_session_id
+            sec_hdr = self._enforce_lingtan_assigned_session_ownership(request, session_id)
+            if sec_hdr is not None:
+                return sec_hdr
             try:
                 db = self._ensure_session_db()
                 if db is not None:
@@ -3458,6 +3546,7 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_get("/v1/capabilities", self._handle_capabilities)
             self._app.router.add_get("/v1/assistant/skills", self._handle_assistant_skills)
             self._app.router.add_get("/v1/assistant/agents", self._handle_assistant_agents)
+            self._app.router.add_get("/v1/assistant/chat-session/default", self._handle_assistant_chat_session_default)
             self._app.router.add_get("/v1/assistant/conversation", self._handle_assistant_conversation)
             self._app.router.add_post("/v1/chat/completions", self._handle_chat_completions)
             self._app.router.add_post("/v1/responses", self._handle_responses)

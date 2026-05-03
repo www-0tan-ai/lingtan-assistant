@@ -44,11 +44,7 @@ function syncHeaders(includeDevice) {
   return h;
 }
 
-/** Stable Hermes SessionDB session id — required for persistent multi-turn chat. */
-function ensureHermesSessionId() {
-  if (state.hermesSessionId && String(state.hermesSessionId).trim()) {
-    return String(state.hermesSessionId).trim();
-  }
+function generateForkedWebSessionId() {
   let id = "";
   try {
     if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -58,17 +54,55 @@ function ensureHermesSessionId() {
     id = "";
   }
   if (!id) id = `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  state.hermesSessionId = id;
-  localStorage.setItem("wb_hermes_session_id", id);
-  updateSessionHint();
   return id;
+}
+
+/**
+ * Align Web UI Hermes SessionDB id with gateway policy:
+ * - Normal: Lingtan-account default (`GET /v1/assistant/chat-session/default`) → same thread after clearing storage.
+ * - Forked (“新建对话”): random `web-…`, only stored locally (`wb_chat_fork=1`).
+ */
+async function hydrateHermesSessionFromServer() {
+  if (!state.accessToken) return;
+  const fork = localStorage.getItem("wb_chat_fork") === "1";
+  if (fork) {
+    if (!(state.hermesSessionId || "").trim()) {
+      state.hermesSessionId = generateForkedWebSessionId();
+      localStorage.setItem("wb_hermes_session_id", state.hermesSessionId);
+    }
+    updateSessionHint();
+    return;
+  }
+  try {
+    const data = await api("/v1/assistant/chat-session/default", { auth: true, method: "GET" });
+    const sid = String(data.session_id || "").trim();
+    if (!sid) throw new Error("empty session_id");
+    state.hermesSessionId = sid;
+    localStorage.setItem("wb_hermes_session_id", sid);
+  } catch (e) {
+    console.warn("chat-session/default failed:", e);
+    if (!(state.hermesSessionId || "").trim()) {
+      state.hermesSessionId = generateForkedWebSessionId();
+      localStorage.setItem("wb_hermes_session_id", state.hermesSessionId);
+    }
+  }
+  updateSessionHint();
+}
+
+async function bootstrapLoggedInUi() {
+  await hydrateHermesSessionFromServer();
+  await refreshSkillsCatalog();
+  await refreshAgentsRoster();
+  await loadConversationIntoChat();
 }
 
 function updateSessionHint() {
   const el = $("session-hint");
   if (!el) return;
   const sid = state.hermesSessionId || "";
-  el.textContent = sid ? `Session: ${sid.slice(0, 38)}…` : "Session: (未创建)";
+  const fork = localStorage.getItem("wb_chat_fork") === "1";
+  const label = fork ? "[分支会话] " : "[主会话·账号默认] ";
+  el.textContent = sid ? `${label}${sid.slice(0, 40)}…` : `${label}(未就绪)`;
 }
 
 function messageTextContent(content) {
@@ -137,7 +171,9 @@ function clearChatLog() {
 }
 
 async function loadConversationIntoChat() {
-  if (!state.accessToken || !state.hermesSessionId) return;
+  if (!state.accessToken) return;
+  await hydrateHermesSessionFromServer();
+  if (!state.hermesSessionId) return;
   try {
     const sid = encodeURIComponent(state.hermesSessionId);
     const data = await api(`/v1/assistant/conversation?session_id=${sid}`, {
@@ -364,7 +400,12 @@ async function sendChat() {
   if (!text) return;
   input.value = "";
   appendMessage("user", text);
-  const sid = ensureHermesSessionId();
+  await hydrateHermesSessionFromServer();
+  const sid = (state.hermesSessionId || "").trim();
+  if (!sid) {
+    appendMessage("assistant", "无法发送：会话未就绪（请稍后重试或重新登录）。");
+    return;
+  }
   try {
     const extraHeaders = { "X-Hermes-Session-Id": sid };
     if (state.subagentDelegateMode) extraHeaders["X-Lingtan-Subagent"] = "1";
@@ -423,11 +464,7 @@ async function login() {
     localStorage.setItem("wb_access_token", state.accessToken);
     setPanel("account-result", data);
     showApp();
-    ensureHermesSessionId();
-    updateSessionHint();
-    await refreshSkillsCatalog();
-    await refreshAgentsRoster();
-    await loadConversationIntoChat();
+    await bootstrapLoggedInUi();
   } catch (err) {
     setPanel("account-result", `登录失败: ${err.message}`);
   }
@@ -452,11 +489,7 @@ async function landingLogin() {
     setPanel("account-result", data);
     setLoginError("");
     showApp();
-    ensureHermesSessionId();
-    updateSessionHint();
-    await refreshSkillsCatalog();
-    await refreshAgentsRoster();
-    await loadConversationIntoChat();
+    await bootstrapLoggedInUi();
   } catch (err) {
     setLoginError(`登录失败: ${err.message}`);
   }
@@ -575,6 +608,7 @@ function logout() {
   if (sf) sf.value = "";
   state.accessToken = "";
   localStorage.removeItem("wb_access_token");
+  localStorage.removeItem("wb_chat_fork");
   localStorage.removeItem("wb_device_id");
   localStorage.removeItem("wb_sync_cursor");
   localStorage.removeItem("wb_hermes_session_id");
@@ -617,10 +651,7 @@ function init() {
 
   if (state.accessToken) {
     showApp();
-    ensureHermesSessionId();
-    refreshSkillsCatalog();
-    refreshAgentsRoster();
-    loadConversationIntoChat();
+    bootstrapLoggedInUi().catch((e) => console.error(e));
   } else {
     showLogin();
   }
@@ -644,12 +675,21 @@ function init() {
   $("pull-events")?.addEventListener("click", pullEvents);
   $("refresh-skills")?.addEventListener("click", refreshSkillsCatalog);
   $("refresh-agents")?.addEventListener("click", refreshAgentsRoster);
-  $("new-chat")?.addEventListener("click", () => {
-    localStorage.removeItem("wb_hermes_session_id");
-    state.hermesSessionId = "";
-    ensureHermesSessionId();
+  $("new-chat")?.addEventListener("click", async () => {
+    localStorage.setItem("wb_chat_fork", "1");
     clearChatLog();
-    updateSessionHint();
+    state.hermesSessionId = "";
+    localStorage.removeItem("wb_hermes_session_id");
+    await hydrateHermesSessionFromServer();
+  });
+
+  $("restore-main-chat")?.addEventListener("click", async () => {
+    localStorage.removeItem("wb_chat_fork");
+    clearChatLog();
+    state.hermesSessionId = "";
+    localStorage.removeItem("wb_hermes_session_id");
+    await hydrateHermesSessionFromServer();
+    await loadConversationIntoChat();
   });
 
   document.querySelectorAll(".quick-chip").forEach((chip) => {

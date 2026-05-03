@@ -295,6 +295,121 @@ button:hover { filter: brightness(1.06); }
   color: #283041;
 }
 
+.catalog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.catalog-search {
+  flex: 1;
+  min-width: 180px;
+  max-width: 440px;
+  border-radius: 10px;
+  border: 1px solid #dde3ef;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+.catalog-meta {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 14px;
+}
+.card-grid-scroll {
+  max-height: min(620px, 58vh);
+  overflow-y: auto;
+  padding: 4px 2px 12px;
+}
+.catalog-empty {
+  padding: 28px 16px;
+  text-align: center;
+  grid-column: 1 / -1;
+}
+.catalog-card {
+  border-radius: 14px;
+  border: 1px solid #e2e8f6;
+  background: linear-gradient(180deg, #fff 0%, #fafbfc 100%);
+  padding: 14px 16px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+  min-height: 118px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.catalog-card:hover {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+  transform: translateY(-1px);
+}
+.skill-card.is-disabled {
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+.card-title {
+  font-weight: 700;
+  font-size: 16px;
+  color: #1a1f2b;
+  line-height: 1.28;
+}
+.card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.badge-muted {
+  background: #eef2f9;
+  color: #4b556f;
+}
+.badge-on { background: #d1fae5; color: #065f46; }
+.badge-off { background: #fee2e2; color: #991b1b; }
+
+.card-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #4e5a6c;
+}
+
+.card-agent-id {
+  margin: -4px 0 0;
+  font-size: 12px;
+  font-family: ui-monospace, Consolas, Menlo, monospace;
+  color: #7b8494;
+}
+.toolset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.toolset-chip {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: #e8ecf7;
+  color: #3a4663;
+}
+
 @media (max-width: 980px) {
   .left-rail { display: none; }
   .main-stage { padding: 14px; }

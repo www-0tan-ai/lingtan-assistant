@@ -18,6 +18,11 @@ const state = {
   subagentDelegateMode: localStorage.getItem("wb_subagent") === "1",
 };
 
+/** Full skill payloads from GET /v1/assistant/skills (for filtering). */
+let skillsCatalogCache = [];
+/** Full agent payloads from GET /v1/assistant/agents */
+let agentsCatalogCache = [];
+
 function $(id) {
   return document.getElementById(id);
 }
@@ -153,27 +158,203 @@ async function loadConversationIntoChat() {
   }
 }
 
+function catalogPlaceholder(wrapEl, text, classExtra = "") {
+  if (!wrapEl) return;
+  wrapEl.innerHTML = "";
+  const p = document.createElement("p");
+  p.className = `catalog-empty muted ${classExtra}`.trim();
+  p.textContent = text;
+  wrapEl.appendChild(p);
+}
+
+function renderSkillCardsIntoGrid(skills) {
+  const wrap = $("skills-cards");
+  const meta = $("skills-meta");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const total = skillsCatalogCache.length;
+  const filt = skills.length;
+  if (meta) {
+    meta.textContent = total ? `共 ${total} 项 · 显示 ${filt}` : "";
+  }
+
+  if (!skills.length && total === 0) {
+    catalogPlaceholder(wrap, "暂无 Skill（请检查 ~/.hermes/skills 与本仓库 skills/）");
+    return;
+  }
+  if (!skills.length) {
+    catalogPlaceholder(wrap, "没有匹配的 Skill（清空搜索框试试看）");
+    return;
+  }
+
+  for (const s of skills) {
+    const card = document.createElement("article");
+    card.className = "catalog-card skill-card";
+    if (s.enabled_in_config === false) card.classList.add("is-disabled");
+
+    const head = document.createElement("div");
+    head.className = "card-head";
+    const title = document.createElement("div");
+    title.className = "card-title";
+    title.textContent = String(s.name || "").trim() || "(未命名 Skill)";
+    head.appendChild(title);
+
+    const badges = document.createElement("div");
+    badges.className = "card-badges";
+    const cat = (s.category && String(s.category).trim()) || "";
+    if (cat) {
+      const b = document.createElement("span");
+      b.className = "badge badge-muted";
+      b.textContent = cat;
+      badges.appendChild(b);
+    }
+    const st = document.createElement("span");
+    st.className = "badge " + (s.enabled_in_config !== false ? "badge-on" : "badge-off");
+    st.textContent = s.enabled_in_config !== false ? "启用" : "已停用";
+    badges.appendChild(st);
+    head.appendChild(badges);
+    card.appendChild(head);
+
+    const desc = document.createElement("p");
+    desc.className = "card-desc";
+    const d = String(s.description || "").trim();
+    desc.textContent = d || "（尚无描述）";
+    card.appendChild(desc);
+
+    wrap.appendChild(card);
+  }
+}
+
+function applySkillsFilterAndRender() {
+  const raw = (($("skills-filter") && $("skills-filter").value) || "").trim().toLowerCase();
+  if (!raw) {
+    renderSkillCardsIntoGrid(skillsCatalogCache.slice());
+    return;
+  }
+  const filtered = skillsCatalogCache.filter((s) => {
+    const hay = `${s.name || ""}\n${s.description || ""}\n${s.category || ""}`.toLowerCase();
+    return hay.includes(raw);
+  });
+  renderSkillCardsIntoGrid(filtered);
+}
+
 async function refreshSkillsCatalog() {
-  const el = $("skills-panel");
-  if (!el || !state.accessToken) return;
-  el.textContent = "加载中…";
+  const wrap = $("skills-cards");
+  const meta = $("skills-meta");
+  if (!wrap) return;
+
+  if (!state.accessToken) {
+    skillsCatalogCache = [];
+    if (meta) meta.textContent = "";
+    catalogPlaceholder(wrap, "请先登录后再加载 Skills 卡片列表");
+    return;
+  }
+
+  catalogPlaceholder(wrap, "加载中…");
   try {
     const data = await api("/v1/assistant/skills", { auth: true, method: "GET" });
-    setPanel("skills-panel", data);
+    if (!data.success) {
+      catalogPlaceholder(wrap, `Skills 加载失败：${data.error || "未知错误"}`, "");
+      skillsCatalogCache = [];
+      if (meta) meta.textContent = "";
+      return;
+    }
+    skillsCatalogCache = Array.isArray(data.skills) ? data.skills.slice() : [];
+    applySkillsFilterAndRender();
   } catch (e) {
-    el.textContent = `加载失败: ${e.message}`;
+    skillsCatalogCache = [];
+    if (meta) meta.textContent = "";
+    catalogPlaceholder(wrap, `加载失败：${e.message}`);
+  }
+}
+
+function renderAgentCardsIntoGrid(agents) {
+  const wrap = $("agents-cards");
+  const meta = $("agents-meta");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  agentsCatalogCache = Array.isArray(agents) ? agents.slice() : [];
+  const n = agentsCatalogCache.length;
+  if (meta) meta.textContent = n ? `已配置 Agents：${n}` : "";
+
+  if (!n) {
+    catalogPlaceholder(wrap, '暂无 Agents（请在 config.yaml 的 lingtan_ui.agents 中启用）');
+    return;
+  }
+
+  for (const a of agentsCatalogCache) {
+    const card = document.createElement("article");
+    card.className = "catalog-card agent-card";
+
+    const head = document.createElement("div");
+    head.className = "card-head";
+    const title = document.createElement("div");
+    title.className = "card-title";
+    title.textContent = String(a.name || "").trim() || String(a.id || "").trim() || "Agent";
+    head.appendChild(title);
+
+    const badges = document.createElement("div");
+    badges.className = "card-badges";
+    const bd = document.createElement("span");
+    bd.className = "badge badge-on";
+    bd.textContent = "子代理";
+    badges.appendChild(bd);
+    head.appendChild(badges);
+    card.appendChild(head);
+
+    const sid = document.createElement("p");
+    sid.className = "card-agent-id";
+    sid.textContent = `id · ${String(a.id || "").trim() || "(无)"}`;
+    card.appendChild(sid);
+
+    const desc = document.createElement("p");
+    desc.className = "card-desc";
+    desc.textContent = String(a.description || "").trim() || "（暂无说明）";
+    card.appendChild(desc);
+
+    const toolsets = Array.isArray(a.toolsets) ? a.toolsets.filter(Boolean) : [];
+    const row = document.createElement("div");
+    row.className = "toolset-row";
+    if (toolsets.length) {
+      for (const t of toolsets) {
+        const chip = document.createElement("span");
+        chip.className = "toolset-chip";
+        chip.textContent = String(t);
+        row.appendChild(chip);
+      }
+    } else {
+      const chip = document.createElement("span");
+      chip.className = "toolset-chip";
+      chip.textContent = "（未声明 toolsets）";
+      row.appendChild(chip);
+    }
+    card.appendChild(row);
+
+    wrap.appendChild(card);
   }
 }
 
 async function refreshAgentsRoster() {
-  const el = $("agents-panel");
-  if (!el || !state.accessToken) return;
-  el.textContent = "加载中…";
+  const wrap = $("agents-cards");
+  const meta = $("agents-meta");
+  if (!wrap) return;
+
+  if (!state.accessToken) {
+    agentsCatalogCache = [];
+    if (meta) meta.textContent = "";
+    catalogPlaceholder(wrap, "请先登录后再加载 Agents 卡片列表");
+    return;
+  }
+
+  catalogPlaceholder(wrap, "加载中…");
   try {
     const data = await api("/v1/assistant/agents", { auth: true, method: "GET" });
-    setPanel("agents-panel", data);
+    const agents = Array.isArray(data.agents) ? data.agents : [];
+    renderAgentCardsIntoGrid(agents);
   } catch (e) {
-    el.textContent = `加载失败: ${e.message}`;
+    agentsCatalogCache = [];
+    if (meta) meta.textContent = "";
+    catalogPlaceholder(wrap, `加载失败：${e.message}`);
   }
 }
 
@@ -388,6 +569,10 @@ function bindTabs() {
 }
 
 function logout() {
+  skillsCatalogCache = [];
+  agentsCatalogCache = [];
+  const sf = $("skills-filter");
+  if (sf) sf.value = "";
   state.accessToken = "";
   localStorage.removeItem("wb_access_token");
   localStorage.removeItem("wb_device_id");
@@ -402,6 +587,12 @@ function logout() {
   state.email = "";
   const chk = $("chk-subagent-delegate");
   if (chk) chk.checked = false;
+  catalogPlaceholder($("skills-cards"), "请先登录后再加载 Skills 卡片列表");
+  catalogPlaceholder($("agents-cards"), "请先登录后再加载 Agents 卡片列表");
+  const sm = $("skills-meta");
+  const am = $("agents-meta");
+  if (sm) sm.textContent = "";
+  if (am) am.textContent = "";
   clearChatLog();
   updateSessionHint();
   showLogin();
@@ -420,6 +611,8 @@ function syncSubagentDelegateCheckbox() {
 function init() {
   bindTabs();
   syncSubagentDelegateCheckbox();
+  $("skills-filter")?.addEventListener("input", () => applySkillsFilterAndRender());
+
   updateSessionHint();
 
   if (state.accessToken) {
@@ -468,7 +661,7 @@ function init() {
   });
 
   if (state.accessToken) {
-    setPanel("account-result", "已检测到本地登录态 — Skills / 子代理 / 会话 已就绪。");
+    setPanel("account-result", "已检测到本地登录态 — Skills · Agents · 会话 已就绪。");
   }
 }
 

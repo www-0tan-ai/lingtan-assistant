@@ -40,8 +40,8 @@
       <button class="task-create">+ 新建任务</button>
 
       <div class="menu-list">
-        <button class="menu-item nav-btn active" data-tab="skills">📚 Skills 目录</button>
-        <button class="menu-item nav-btn" data-tab="agents">🧩 子代理</button>
+        <button class="menu-item nav-btn active" data-tab="skills">📚 Skills</button>
+        <button class="menu-item nav-btn" data-tab="agents">🤖 Agents</button>
         <button class="menu-item nav-btn" data-tab="chat">🧠 智能助手</button>
         <button class="menu-item nav-btn" data-tab="sync">☁️ 云端同步</button>
         <button class="menu-item nav-btn" data-tab="account">👤 账号中心</button>
@@ -57,29 +57,34 @@
       <header class="hero hero-compact">
         <div class="bot-avatar">◉</div>
         <h1>端云一体灵碳工作台</h1>
-        <p>Skills 目录 · 子代理(delegate_task) · Hermes SessionDB 会话</p>
+        <p>Skills · Agents(delegate_task) · Hermes SessionDB 会话</p>
       </header>
 
       <section id="tab-skills" class="tab glass active">
         <div class="toolbar">
-          <div class="section-title">Hermes Skills（磁盘发现 + 内置 skills/）</div>
+          <div class="section-title">Hermes Skills</div>
           <button type="button" id="refresh-skills" class="small-btn">刷新</button>
         </div>
-        <p class="muted">以下为当前环境可用的全部 SKILL；可在 config.yaml <code>skills.disabled</code> 中停用。</p>
-        <pre id="skills-panel" class="panel scroll-panel">登录后加载…</pre>
+        <p class="muted">
+          卡片展示当前磁盘发现的 SKILL（含内置 <code>skills/</code>）；可在 config.yaml <code>skills.disabled</code> 中停用。
+        </p>
+        <div class="catalog-toolbar">
+          <input type="search" id="skills-filter" class="catalog-search" placeholder="筛选名称、描述、分类…" autocomplete="off" />
+          <span id="skills-meta" class="catalog-meta muted mono"></span>
+        </div>
+        <div id="skills-cards" class="card-grid card-grid-scroll"></div>
       </section>
 
       <section id="tab-agents" class="tab glass">
         <div class="toolbar">
-          <div class="section-title">子代理 roster（Hermes delegate_task）</div>
+          <div class="section-title">Agents · 委派子代理</div>
           <button type="button" id="refresh-agents" class="small-btn">刷新</button>
         </div>
         <p class="muted">
-          与左侧「Skills 目录」相同：以下为当前启用的<strong>委派子代理</strong>配置列表（可供查阅）。
-          在对话中勾选「子代理模式」后，主代理会按需调用 <code>delegate_task</code> spawn 子 agent；
-          列表来自 config <code>lingtan_ui.agents</code>。
+          卡片展示 <code>lingtan_ui.agents</code> 中已启用的专家配置；勾选「子代理模式」后主代理可按需 <code>delegate_task</code> spawn 子 agent。
         </p>
-        <pre id="agents-panel" class="panel scroll-panel">登录后加载…</pre>
+        <span id="agents-meta" class="catalog-meta muted mono"></span>
+        <div id="agents-cards" class="card-grid card-grid-scroll"></div>
       </section>
 
       <section id="tab-chat" class="tab glass">

@@ -7,6 +7,25 @@ body {
 
 .hidden { display: none !important; }
 
+.origin-warning {
+  margin: 0;
+  padding: 12px 16px;
+  background: #fff4e5;
+  border-bottom: 1px solid #f0c36d;
+  color: #6a4a1b;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.origin-warning code { font-size: 13px; }
+
+.hero-hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 720px;
+}
+.hero-hint code { font-size: 12px; }
+
 .login-screen {
   min-height: 100vh;
   display: grid;

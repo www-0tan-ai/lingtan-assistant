@@ -9,6 +9,33 @@ function migrateSubagentLocalStorage() {
 }
 migrateSubagentLocalStorage();
 
+function getApiBase() {
+  try {
+    const fromBody = (document.body && document.body.dataset && document.body.dataset.apiBase) || "";
+    const win =
+      typeof window !== "undefined" ? String(window.__LINGTAN_API_BASE__ || window.__HERMES_UI_API_BASE__ || "") : "";
+    const b = String(fromBody || win).trim().replace(/\/$/, "");
+    return b;
+  } catch (_) {
+    return "";
+  }
+}
+
+/** Absolute or same-origin relative URL for fetch. */
+function apiUrl(path) {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  const base = getApiBase();
+  if (!base) return p;
+  return `${base}${p}`;
+}
+
+function showOriginWarnings() {
+  const el = $("origin-warning");
+  if (!el) return;
+  const badFile = typeof location !== "undefined" && location.protocol === "file:";
+  if (badFile) el.classList.remove("hidden");
+}
+
 const state = {
   accessToken: localStorage.getItem("wb_access_token") || "",
   /** 与网关 API_SERVER_KEY 相同，用于 OpenAI 兼容鉴权下浏览 Skills/Agents（无需灵碳账号） */
@@ -360,10 +387,24 @@ async function api(path, options = {}) {
   if (options.auth && bearerForOpenAICompat()) {
     headers.Authorization = `Bearer ${bearerForOpenAICompat()}`;
   }
-  const resp = await fetch(path, { ...options, headers });
+  const url = apiUrl(path);
+  let resp;
+  try {
+    resp = await fetch(url, { ...options, headers });
+  } catch (e) {
+    const hint =
+      getApiBase() || typeof location === "undefined"
+        ? ""
+        : ` 当前页：${location.origin || ""}。若接口在其它主机，请在 body 上设置 data-api-base 指向网关根 URL（无尾斜杠）。`;
+    throw new Error(`${e && e.message ? e.message : "网络错误"}。${hint}`.trim());
+  }
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    throw new Error(data?.error?.message || data?.error || `HTTP ${resp.status}`);
+    let msg = data?.error?.message || data?.error || `HTTP ${resp.status}`;
+    if (resp.status === 401) {
+      msg = `${msg}（401：须从运行 API Server 的 /app 打开；或 Bearer 与 API_SERVER_KEY 不一致 / 登录 token 已失效——请清除本站数据后重新登录，或在账号中心填入网关密钥。）`;
+    }
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
   }
   if (options.rawResponse) {
     return { data, resp };
@@ -539,7 +580,10 @@ function renderAgentCardsIntoGrid(agents) {
   if (meta) meta.textContent = n ? `已配置 Agents：${n}` : "";
 
   if (!n) {
-    catalogPlaceholder(wrap, '暂无 Agents（请在 config.yaml 的 lingtan_ui.agents 中启用）');
+    catalogPlaceholder(
+      wrap,
+      "暂无 Agents：服务器 config 里 lingtan_ui.agents 为空或全部 enabled:false。若你从未改过该项，检查 ~/.hermes/config.yaml 是否误写了 lingtan_ui.agents: []；删掉该项可恢复内置默认专家列表。",
+    );
     return;
   }
 
@@ -881,6 +925,7 @@ function syncSubagentDelegateCheckbox() {
 }
 
 function init() {
+  showOriginWarnings();
   bindTabs();
   syncSubagentDelegateCheckbox();
   $("skills-filter")?.addEventListener("input", () => applySkillsFilterAndRender());

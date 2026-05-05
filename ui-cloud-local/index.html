@@ -6,7 +6,12 @@
   <title>灵碳助手</title>
   <link rel="stylesheet" href="/app/styles.css" />
 </head>
-<body>
+<body data-api-base="">
+  <!-- 静态页与网关分域名部署时：设置 data-api-base="https://你的网关"（无尾斜杠） -->
+  <div id="origin-warning" class="origin-warning hidden" role="alert">
+    当前是本地文件或其它无效来源，浏览器无法请求 <code>/v1</code> 接口。请用浏览器打开 API Server 提供的地址：
+    <strong>http://&lt;网关主机&gt;:&lt;端口&gt;/app</strong>（例如 <code>http://127.0.0.1:8642/app</code>）。
+  </div>
   <section id="login-screen" class="login-screen">
     <div class="login-card">
       <div class="login-avatar">◉</div>
@@ -93,6 +98,10 @@
         <div class="bot-avatar">◉</div>
         <h1>端云一体灵碳工作台</h1>
         <p>Skills · Agents(delegate_task) · Hermes SessionDB 会话</p>
+        <p class="hero-hint muted">
+          请从<strong>同一台 API Server</strong>访问本页（默认 <code>http://127.0.0.1:8642/app</code>）。若服务端配置了
+          <code>API_SERVER_KEY</code>，登录获得的 token 须由<strong>该网关</strong>签发，或在「账号中心」填入同一密钥。
+        </p>
       </header>
 
       <nav class="mobile-tab-strip" aria-label="页面切换（窄屏时侧栏会隐藏，请用此行）">

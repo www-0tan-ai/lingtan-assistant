@@ -25,6 +25,8 @@ Hermes CLI **没有**邮箱密码登录；浏览器里的「灵碳账号」只�
 - **localStorage 键名（勿另起炉灶）**：以 `GET {BACKEND_URL}/v1/capabilities` 返回的 **`lingtan_browser_sdk.local_storage_keys`** 为准（与仓库内 **`ui-cloud-local/lingtan-auth-contract.js`** 同步）；自建 Vue/React（如 compose 指向的私有前端镜像）应复制该文件或启动时 fetch capabilities 对齐键名。
 - **Vite/webpack**：把 `LINGTAN_API_BASE`/`__HERMES_UI_API_BASE__` 指到后端根（例如 `http://localhost:8650`，无路径尾 `/`）；并保证 **`API_SERVER_CORS_ORIGINS`** 包含前端的 Origin。
 
+- **React 工作台（zerocarbon-assistant-fronted）**：登录后进 `/app` 会 **`GET /v1/assistant/skills` 与 `/v1/assistant/agents`** 渲染侧栏与中区快捷 Skill；不再是纯静态 mock。**`vite preview` 已配置与 dev 相同的 `/v1` 代理**；若仅用 `vite preview -p 6121` 且后端不在本机 `:8650`，请改代理目标或改用 `VITE_API_BASE` 构建。
+
 ## 2) 启动
 
 ```bash

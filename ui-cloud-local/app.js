@@ -22,6 +22,11 @@ const state = {
 let skillsCatalogCache = [];
 /** Full agent payloads from GET /v1/assistant/agents */
 let agentsCatalogCache = [];
+/** GET /v1/workspaces — 左侧栏灵碳云端工作空间 */
+let workspacesRailCache = [];
+
+const RAIL_SKILLS_CAP = 100;
+const RAIL_AGENTS_CAP = 80;
 
 function $(id) {
   return document.getElementById(id);
@@ -93,6 +98,7 @@ async function bootstrapLoggedInUi() {
   await hydrateHermesSessionFromServer();
   await refreshSkillsCatalog();
   await refreshAgentsRoster();
+  await refreshWorkspacesRail();
   await loadConversationIntoChat();
 }
 
@@ -103,6 +109,180 @@ function updateSessionHint() {
   const fork = localStorage.getItem("wb_chat_fork") === "1";
   const label = fork ? "[分支会话] " : "[主会话·账号默认] ";
   el.textContent = sid ? `${label}${sid.slice(0, 40)}…` : `${label}(未就绪)`;
+}
+
+function railCatalogQuery() {
+  return (($("rail-catalog-filter") && $("rail-catalog-filter").value) || "").trim().toLowerCase();
+}
+
+function showTab(tab, opts = {}) {
+  const doRefetch = opts.refetch !== false;
+  document.querySelectorAll(".nav-btn").forEach((x) => x.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+  const nav = document.querySelector(`.nav-btn[data-tab="${tab}"]`);
+  const panel = document.getElementById(`tab-${tab}`);
+  if (nav) nav.classList.add("active");
+  if (panel) panel.classList.add("active");
+  if (!doRefetch) return;
+  if (tab === "skills" && state.accessToken) refreshSkillsCatalog();
+  if (tab === "agents" && state.accessToken) refreshAgentsRoster();
+  if (tab === "chat" && state.accessToken) loadConversationIntoChat();
+}
+
+function renderRailSkills() {
+  const wrap = $("rail-skills-list");
+  const countEl = $("rail-skills-count");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  if (countEl) countEl.textContent = "";
+  if (!state.accessToken) {
+    wrap.innerHTML = "<p class='rail-empty'>登录后加载</p>";
+    return;
+  }
+  const q = railCatalogQuery();
+  let list = skillsCatalogCache.slice();
+  if (q) {
+    list = list.filter((s) => {
+      const hay = `${s.name || ""}\n${s.description || ""}\n${s.category || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }
+  const total = skillsCatalogCache.length;
+  if (countEl) countEl.textContent = total ? `· ${list.length}/${total}` : "";
+  if (!total) {
+    wrap.innerHTML = "<p class='rail-empty'>主区刷新 Skills 后与这里同步</p>";
+    return;
+  }
+  if (!list.length) {
+    wrap.innerHTML = "<p class='rail-empty'>无匹配项</p>";
+    return;
+  }
+  const slice = list.slice(0, RAIL_SKILLS_CAP);
+  for (const s of slice) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "rail-item" + (s.enabled_in_config === false ? " is-disabled" : "");
+    const nm = String(s.name || "").trim() || "(未命名)";
+    btn.textContent = nm;
+    btn.title = String(s.description || "").slice(0, 280);
+    btn.addEventListener("click", () => {
+      showTab("skills", { refetch: false });
+      const sf = $("skills-filter");
+      if (sf) sf.value = nm;
+      applySkillsFilterAndRender();
+    });
+    wrap.appendChild(btn);
+  }
+  if (list.length > RAIL_SKILLS_CAP) {
+    const p = document.createElement("p");
+    p.className = "rail-more";
+    p.textContent = `另有 ${list.length - RAIL_SKILLS_CAP} 项未显示，请收窄筛选或看主区完整列表`;
+    wrap.appendChild(p);
+  }
+}
+
+function renderRailAgents() {
+  const wrap = $("rail-agents-list");
+  const countEl = $("rail-agents-count");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  if (countEl) countEl.textContent = "";
+  if (!state.accessToken) {
+    wrap.innerHTML = "<p class='rail-empty'>登录后加载</p>";
+    return;
+  }
+  const q = railCatalogQuery();
+  let list = agentsCatalogCache.slice();
+  if (q) {
+    list = list.filter((a) => {
+      const hay = `${a.name || ""}\n${a.id || ""}\n${a.description || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }
+  const total = agentsCatalogCache.length;
+  if (countEl) countEl.textContent = total ? `· ${list.length}/${total}` : "";
+  if (!total) {
+    wrap.innerHTML = "<p class='rail-empty'>主区刷新 Agents 后与这里同步</p>";
+    return;
+  }
+  if (!list.length) {
+    wrap.innerHTML = "<p class='rail-empty'>无匹配项</p>";
+    return;
+  }
+  const slice = list.slice(0, RAIL_AGENTS_CAP);
+  for (const a of slice) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "rail-item";
+    const label = String(a.name || "").trim() || String(a.id || "").trim() || "Agent";
+    btn.textContent = label;
+    btn.title = `${String(a.id || "").trim()} · ${String(a.description || "").slice(0, 220)}`;
+    btn.addEventListener("click", () => {
+      showTab("agents", { refetch: false });
+    });
+    wrap.appendChild(btn);
+  }
+  if (list.length > RAIL_AGENTS_CAP) {
+    const p = document.createElement("p");
+    p.className = "rail-more";
+    p.textContent = `另有 ${list.length - RAIL_AGENTS_CAP} 项未显示，请收窄筛选`;
+    wrap.appendChild(p);
+  }
+}
+
+function renderRailWorkspaces() {
+  const wrap = $("rail-workspaces-list");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  if (!state.accessToken) {
+    wrap.innerHTML = "<p class='rail-empty'>登录后加载</p>";
+    return;
+  }
+  if (!workspacesRailCache.length) {
+    wrap.innerHTML = "<p class='rail-empty'>暂无工作空间（新账号请先完成登录）</p>";
+    return;
+  }
+  for (const w of workspacesRailCache) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "rail-item" + (w.is_default ? " is-default" : "");
+    const nm = String(w.name || "").trim() || String(w.workspace_id || "").trim() || "(工作空间)";
+    btn.textContent = w.is_default ? `${nm}（默认）` : nm;
+    btn.title = String(w.workspace_id || "");
+    btn.addEventListener("click", () => {
+      setPanel("sync-result", {
+        workspace_id: w.workspace_id,
+        name: w.name,
+        is_default: w.is_default,
+        created_at: w.created_at,
+      });
+      showTab("sync", { refetch: false });
+    });
+    wrap.appendChild(btn);
+  }
+}
+
+async function refreshWorkspacesRail() {
+  const wrap = $("rail-workspaces-list");
+  if (!wrap) return;
+  if (!state.accessToken) {
+    workspacesRailCache = [];
+    renderRailWorkspaces();
+    return;
+  }
+  wrap.innerHTML = "<p class='rail-empty'>加载工作空间…</p>";
+  try {
+    const data = await api("/v1/workspaces", { auth: true, method: "GET" });
+    workspacesRailCache = Array.isArray(data.workspaces) ? data.workspaces.slice() : [];
+    renderRailWorkspaces();
+  } catch (e) {
+    workspacesRailCache = [];
+    wrap.innerHTML = "";
+    const p = document.createElement("p");
+    p.className = "rail-empty";
+    p.textContent = `工作空间加载失败：${e.message}`;
+    wrap.appendChild(p);
+  }
 }
 
 function messageTextContent(content) {
@@ -283,8 +463,12 @@ async function refreshSkillsCatalog() {
     skillsCatalogCache = [];
     if (meta) meta.textContent = "";
     catalogPlaceholder(wrap, "请先登录后再加载 Skills 卡片列表");
+    renderRailSkills();
     return;
   }
+
+  const rw = $("rail-skills-list");
+  if (rw) rw.innerHTML = "<p class='rail-empty'>加载中…</p>";
 
   catalogPlaceholder(wrap, "加载中…");
   try {
@@ -293,14 +477,17 @@ async function refreshSkillsCatalog() {
       catalogPlaceholder(wrap, `Skills 加载失败：${data.error || "未知错误"}`, "");
       skillsCatalogCache = [];
       if (meta) meta.textContent = "";
+      renderRailSkills();
       return;
     }
     skillsCatalogCache = Array.isArray(data.skills) ? data.skills.slice() : [];
     applySkillsFilterAndRender();
+    renderRailSkills();
   } catch (e) {
     skillsCatalogCache = [];
     if (meta) meta.textContent = "";
     catalogPlaceholder(wrap, `加载失败：${e.message}`);
+    renderRailSkills();
   }
 }
 
@@ -379,18 +566,24 @@ async function refreshAgentsRoster() {
     agentsCatalogCache = [];
     if (meta) meta.textContent = "";
     catalogPlaceholder(wrap, "请先登录后再加载 Agents 卡片列表");
+    renderRailAgents();
     return;
   }
+
+  const ra = $("rail-agents-list");
+  if (ra) ra.innerHTML = "<p class='rail-empty'>加载中…</p>";
 
   catalogPlaceholder(wrap, "加载中…");
   try {
     const data = await api("/v1/assistant/agents", { auth: true, method: "GET" });
     const agents = Array.isArray(data.agents) ? data.agents : [];
     renderAgentCardsIntoGrid(agents);
+    renderRailAgents();
   } catch (e) {
     agentsCatalogCache = [];
     if (meta) meta.textContent = "";
     catalogPlaceholder(wrap, `加载失败：${e.message}`);
+    renderRailAgents();
   }
 }
 
@@ -588,24 +781,18 @@ async function pullEvents() {
 
 function bindTabs() {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".nav-btn").forEach((x) => x.classList.remove("active"));
-      document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-      btn.classList.add("active");
-      const tab = btn.getAttribute("data-tab");
-      document.getElementById(`tab-${tab}`).classList.add("active");
-      if (tab === "skills" && state.accessToken) refreshSkillsCatalog();
-      if (tab === "agents" && state.accessToken) refreshAgentsRoster();
-      if (tab === "chat" && state.accessToken) loadConversationIntoChat();
-    });
+    btn.addEventListener("click", () => showTab(btn.getAttribute("data-tab")));
   });
 }
 
 function logout() {
   skillsCatalogCache = [];
   agentsCatalogCache = [];
+  workspacesRailCache = [];
   const sf = $("skills-filter");
   if (sf) sf.value = "";
+  const rcf = $("rail-catalog-filter");
+  if (rcf) rcf.value = "";
   state.accessToken = "";
   localStorage.removeItem("wb_access_token");
   localStorage.removeItem("wb_chat_fork");
@@ -628,6 +815,9 @@ function logout() {
   if (sm) sm.textContent = "";
   if (am) am.textContent = "";
   clearChatLog();
+  renderRailSkills();
+  renderRailAgents();
+  renderRailWorkspaces();
   updateSessionHint();
   showLogin();
 }
@@ -646,6 +836,10 @@ function init() {
   bindTabs();
   syncSubagentDelegateCheckbox();
   $("skills-filter")?.addEventListener("input", () => applySkillsFilterAndRender());
+  $("rail-catalog-filter")?.addEventListener("input", () => {
+    renderRailSkills();
+    renderRailAgents();
+  });
 
   updateSessionHint();
 

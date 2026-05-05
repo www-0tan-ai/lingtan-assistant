@@ -35,10 +35,6 @@
         </div>
       </div>
 
-      <div class="search-box">搜索任务</div>
-
-      <button class="task-create">+ 新建任务</button>
-
       <div class="menu-list">
         <button class="menu-item nav-btn active" data-tab="skills">📚 Skills</button>
         <button class="menu-item nav-btn" data-tab="agents">🤖 Agents</button>
@@ -47,9 +43,38 @@
         <button class="menu-item nav-btn" data-tab="account">👤 账号中心</button>
       </div>
 
-      <div class="workspace-title">工作空间</div>
-      <div class="workspace-item active">20260424204216</div>
-      <div class="workspace-item">zhima</div>
+      <div class="rail-catalog">
+        <input
+          type="search"
+          id="rail-catalog-filter"
+          class="rail-search"
+          placeholder="筛选左侧 Skills / Agents…"
+          autocomplete="off"
+        />
+        <p id="rail-catalog-hint" class="rail-hint muted">
+          Skills、Agents 来自 Hermes 接口；工作空间来自灵碳账号云端。
+        </p>
+
+        <div class="rail-section">
+          <div class="rail-heading">
+            Skills <span id="rail-skills-count" class="rail-count"></span>
+          </div>
+          <div id="rail-skills-list" class="rail-scroll" aria-label="Skills 列表"></div>
+        </div>
+
+        <div class="rail-section">
+          <div class="rail-heading">
+            Agents <span id="rail-agents-count" class="rail-count"></span>
+          </div>
+          <div id="rail-agents-list" class="rail-scroll" aria-label="Agents 列表"></div>
+        </div>
+
+        <div class="rail-section">
+          <div class="rail-heading">工作空间（云端）</div>
+          <div id="rail-workspaces-list" class="rail-scroll" aria-label="工作空间列表"></div>
+        </div>
+      </div>
+
       <button id="logout-btn" class="logout-btn">退出登录</button>
     </aside>
 

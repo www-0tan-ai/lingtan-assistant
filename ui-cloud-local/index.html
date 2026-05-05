@@ -21,6 +21,16 @@
         </div>
       </div>
       <div id="login-error" class="login-error"></div>
+      <details class="login-gateway">
+        <summary>使用网关 API Key 浏览 Skills / Agents（无需灵碳账号）</summary>
+        <p class="login-gateway-hint muted">
+          与运行 API Server 的 <code>API_SERVER_KEY</code> / <code>.env</code> 中配置一致；仅用于 OpenAI 兼容鉴权。
+        </p>
+        <div class="login-gateway-row">
+          <input id="gateway-bearer-landing" type="password" autocomplete="off" placeholder="粘贴 API_SERVER_KEY" />
+          <button type="button" id="save-gateway-preview" class="ghost-btn">进入</button>
+        </div>
+      </details>
       <div class="login-footer">隐私政策　　服务条款</div>
     </div>
   </section>
@@ -153,6 +163,14 @@
 
       <section id="tab-account" class="tab glass">
         <div class="section-title">账号与设备</div>
+        <p class="muted">
+          网关 <code>API_SERVER_KEY</code> 保存在本浏览器，用于在未登录时请求 <code>/v1/assistant/skills</code> 与
+          <code>/v1/assistant/agents</code>（与服务端 OpenAI 兼容 Bearer 一致）。
+        </p>
+        <div class="row">
+          <input id="gateway-bearer-account" type="password" style="flex: 1" autocomplete="off" placeholder="网关 API Key（可选，同 API_SERVER_KEY）" />
+          <button type="button" id="save-gateway-bearer-account">保存网关密钥</button>
+        </div>
         <div class="row two-col">
           <input id="email" type="email" placeholder="邮箱" />
           <input id="password" type="password" placeholder="密码（至少8位）" />

@@ -11,6 +11,8 @@ migrateSubagentLocalStorage();
 
 const state = {
   accessToken: localStorage.getItem("wb_access_token") || "",
+  /** 与网关 API_SERVER_KEY 相同，用于 OpenAI 兼容鉴权下浏览 Skills/Agents（无需灵碳账号） */
+  gatewayBearer: localStorage.getItem("wb_gateway_bearer") || "",
   deviceId: localStorage.getItem("wb_device_id") || "",
   pullCursor: Number(localStorage.getItem("wb_sync_cursor")) || 0,
   email: "",
@@ -47,6 +49,28 @@ function syncHeaders(includeDevice) {
     h["X-Lingtan-Device-Id"] = state.deviceId;
   }
   return h;
+}
+
+/** 灵碳 JWT 优先；否则使用本地保存的网关 API_SERVER_KEY（与服务端 _check_auth_openai_compat 一致）。 */
+function bearerForOpenAICompat() {
+  return String(state.accessToken || "").trim() || String(state.gatewayBearer || "").trim();
+}
+
+function persistGatewayBearer(raw) {
+  const v = String(raw || "").trim();
+  state.gatewayBearer = v;
+  if (v) localStorage.setItem("wb_gateway_bearer", v);
+  else localStorage.removeItem("wb_gateway_bearer");
+}
+
+/** 仅网关密钥、无灵碳账号时，用本地 web- 会话走 SessionDB。 */
+async function ensureLocalWebSessionForGatewayOnly() {
+  if (state.accessToken) return;
+  if ((state.hermesSessionId || "").trim()) return;
+  state.hermesSessionId = generateForkedWebSessionId();
+  localStorage.setItem("wb_hermes_session_id", state.hermesSessionId);
+  localStorage.setItem("wb_chat_fork", "1");
+  updateSessionHint();
 }
 
 function generateForkedWebSessionId() {
@@ -102,6 +126,17 @@ async function bootstrapLoggedInUi() {
   await loadConversationIntoChat();
 }
 
+/** 仅配置了网关 API_SERVER_KEY、未登录灵碳时：拉目录 + 本地会话。 */
+async function bootstrapGatewayBearerOnlyUi() {
+  await ensureLocalWebSessionForGatewayOnly();
+  await refreshSkillsCatalog();
+  await refreshAgentsRoster();
+  workspacesRailCache = [];
+  const rw = $("rail-workspaces-list");
+  if (rw) rw.innerHTML = "<p class='rail-empty'>工作空间需灵碳账号登录</p>";
+  await loadConversationIntoChat();
+}
+
 function updateSessionHint() {
   const el = $("session-hint");
   if (!el) return;
@@ -123,9 +158,9 @@ function showTab(tab, opts = {}) {
   const panel = document.getElementById(`tab-${tab}`);
   if (panel) panel.classList.add("active");
   if (!doRefetch) return;
-  if (tab === "skills" && state.accessToken) refreshSkillsCatalog();
-  if (tab === "agents" && state.accessToken) refreshAgentsRoster();
-  if (tab === "chat" && state.accessToken) loadConversationIntoChat();
+  if (tab === "skills" && bearerForOpenAICompat()) refreshSkillsCatalog();
+  if (tab === "agents" && bearerForOpenAICompat()) refreshAgentsRoster();
+  if (tab === "chat" && bearerForOpenAICompat()) loadConversationIntoChat();
 }
 
 function renderRailSkills() {
@@ -134,8 +169,8 @@ function renderRailSkills() {
   if (!wrap) return;
   wrap.innerHTML = "";
   if (countEl) countEl.textContent = "";
-  if (!state.accessToken) {
-    wrap.innerHTML = "<p class='rail-empty'>登录后加载</p>";
+  if (!bearerForOpenAICompat()) {
+    wrap.innerHTML = "<p class='rail-empty'>登录或配置网关 Key 后加载</p>";
     return;
   }
   const q = railCatalogQuery();
@@ -186,8 +221,8 @@ function renderRailAgents() {
   if (!wrap) return;
   wrap.innerHTML = "";
   if (countEl) countEl.textContent = "";
-  if (!state.accessToken) {
-    wrap.innerHTML = "<p class='rail-empty'>登录后加载</p>";
+  if (!bearerForOpenAICompat()) {
+    wrap.innerHTML = "<p class='rail-empty'>登录或配置网关 Key 后加载</p>";
     return;
   }
   const q = railCatalogQuery();
@@ -234,7 +269,7 @@ function renderRailWorkspaces() {
   if (!wrap) return;
   wrap.innerHTML = "";
   if (!state.accessToken) {
-    wrap.innerHTML = "<p class='rail-empty'>登录后加载</p>";
+    wrap.innerHTML = "<p class='rail-empty'>工作空间需灵碳账号登录</p>";
     return;
   }
   if (!workspacesRailCache.length) {
@@ -322,8 +357,8 @@ async function api(path, options = {}) {
     ...(options.headers || {}),
     ...(options.extraHeaders || {}),
   };
-  if (options.auth && state.accessToken) {
-    headers.Authorization = `Bearer ${state.accessToken}`;
+  if (options.auth && bearerForOpenAICompat()) {
+    headers.Authorization = `Bearer ${bearerForOpenAICompat()}`;
   }
   const resp = await fetch(path, { ...options, headers });
   const data = await resp.json().catch(() => ({}));
@@ -350,9 +385,10 @@ function clearChatLog() {
 }
 
 async function loadConversationIntoChat() {
-  if (!state.accessToken) return;
+  if (!bearerForOpenAICompat()) return;
   await hydrateHermesSessionFromServer();
-  if (!state.hermesSessionId) return;
+  if (!(state.hermesSessionId || "").trim()) await ensureLocalWebSessionForGatewayOnly();
+  if (!(state.hermesSessionId || "").trim()) return;
   try {
     const sid = encodeURIComponent(state.hermesSessionId);
     const data = await api(`/v1/assistant/conversation?session_id=${sid}`, {
@@ -458,10 +494,13 @@ async function refreshSkillsCatalog() {
   const meta = $("skills-meta");
   if (!wrap) return;
 
-  if (!state.accessToken) {
+  if (!bearerForOpenAICompat()) {
     skillsCatalogCache = [];
     if (meta) meta.textContent = "";
-    catalogPlaceholder(wrap, "请先登录后再加载 Skills 卡片列表");
+    catalogPlaceholder(
+      wrap,
+      "请先登录灵碳账号，或在登录页 / 账号中心填写「网关 API Key」（与 API_SERVER_KEY 相同）后再点「刷新」。",
+    );
     renderRailSkills();
     return;
   }
@@ -561,10 +600,13 @@ async function refreshAgentsRoster() {
   const meta = $("agents-meta");
   if (!wrap) return;
 
-  if (!state.accessToken) {
+  if (!bearerForOpenAICompat()) {
     agentsCatalogCache = [];
     if (meta) meta.textContent = "";
-    catalogPlaceholder(wrap, "请先登录后再加载 Agents 卡片列表");
+    catalogPlaceholder(
+      wrap,
+      "请先登录灵碳账号，或在登录页 / 账号中心填写「网关 API Key」（与 API_SERVER_KEY 相同）后再点「刷新」。",
+    );
     renderRailAgents();
     return;
   }
@@ -593,6 +635,7 @@ async function sendChat() {
   input.value = "";
   appendMessage("user", text);
   await hydrateHermesSessionFromServer();
+  if (!(state.hermesSessionId || "").trim()) await ensureLocalWebSessionForGatewayOnly();
   const sid = (state.hermesSessionId || "").trim();
   if (!sid) {
     appendMessage("assistant", "无法发送：会话未就绪（请稍后重试或重新登录）。");
@@ -807,8 +850,14 @@ function logout() {
   state.email = "";
   const chk = $("chk-subagent-delegate");
   if (chk) chk.checked = false;
-  catalogPlaceholder($("skills-cards"), "请先登录后再加载 Skills 卡片列表");
-  catalogPlaceholder($("agents-cards"), "请先登录后再加载 Agents 卡片列表");
+  catalogPlaceholder(
+    $("skills-cards"),
+    "请登录或配置网关 API Key（与 API_SERVER_KEY 相同）后刷新 Skills。",
+  );
+  catalogPlaceholder(
+    $("agents-cards"),
+    "请登录或配置网关 API Key（与 API_SERVER_KEY 相同）后刷新 Agents。",
+  );
   const sm = $("skills-meta");
   const am = $("agents-meta");
   if (sm) sm.textContent = "";
@@ -845,12 +894,26 @@ function init() {
   if (state.accessToken) {
     showApp();
     bootstrapLoggedInUi().catch((e) => console.error(e));
+  } else if (bearerForOpenAICompat()) {
+    showApp();
+    bootstrapGatewayBearerOnlyUi().catch((e) => console.error(e));
   } else {
     showLogin();
   }
 
   $("landing-login")?.addEventListener("click", landingLogin);
   $("landing-register")?.addEventListener("click", landingRegister);
+  $("save-gateway-preview")?.addEventListener("click", () => {
+    const inp = $("gateway-bearer-landing");
+    persistGatewayBearer((inp && inp.value) || "");
+    if (!bearerForOpenAICompat()) {
+      setLoginError("请填写网关 API Key");
+      return;
+    }
+    setLoginError("");
+    showApp();
+    bootstrapGatewayBearerOnlyUi().catch((e) => console.error(e));
+  });
   $("logout-btn")?.addEventListener("click", logout);
 
   $("send-chat")?.addEventListener("click", sendChat);
@@ -859,6 +922,14 @@ function init() {
       evt.preventDefault();
       sendChat();
     }
+  });
+
+  $("save-gateway-bearer-account")?.addEventListener("click", () => {
+    const inp = $("gateway-bearer-account");
+    persistGatewayBearer((inp && inp.value) || "");
+    setPanel("account-result", { ok: true, saved: "网关 API Key 已保存（与 API_SERVER_KEY 相同）。Skills/Agents 将使用该 Bearer。" });
+    refreshSkillsCatalog();
+    refreshAgentsRoster();
   });
 
   $("register")?.addEventListener("click", register);
@@ -874,6 +945,7 @@ function init() {
     state.hermesSessionId = "";
     localStorage.removeItem("wb_hermes_session_id");
     await hydrateHermesSessionFromServer();
+    if (!(state.hermesSessionId || "").trim()) await ensureLocalWebSessionForGatewayOnly();
   });
 
   $("restore-main-chat")?.addEventListener("click", async () => {
@@ -882,6 +954,7 @@ function init() {
     state.hermesSessionId = "";
     localStorage.removeItem("wb_hermes_session_id");
     await hydrateHermesSessionFromServer();
+    if (!(state.hermesSessionId || "").trim()) await ensureLocalWebSessionForGatewayOnly();
     await loadConversationIntoChat();
   });
 
@@ -895,7 +968,16 @@ function init() {
 
   if (state.accessToken) {
     setPanel("account-result", "已检测到本地登录态 — Skills · Agents · 会话 已就绪。");
+  } else if (bearerForOpenAICompat()) {
+    setPanel(
+      "account-result",
+      "当前使用网关 API Key — 可浏览 Skills/Agents；云端同步与灵碳主会话请登录账号。",
+    );
   }
+  const gba = $("gateway-bearer-account");
+  const gbl = $("gateway-bearer-landing");
+  if (gba && state.gatewayBearer) gba.value = state.gatewayBearer;
+  if (gbl && state.gatewayBearer) gbl.value = state.gatewayBearer;
 }
 
 init();

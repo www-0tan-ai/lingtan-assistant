@@ -1,18 +1,115 @@
-# Bind-mounted into the backend container as /opt/data/config.yaml (see deploy/docker-compose.lingtan.yml).
-# Tune model.default here so it matches your upstream deployment name — compose env alone does not
-# replace gateway _resolve_gateway_model(), which reads this file verbatim.
+# =============================================================================
+# Lingtan Docker · bind-mounted → /opt/data/config.yaml (see docker-compose.lingtan.yml)
+# Aligns with local deploy/.env (Foundry www-0504). Secrets stay in deploy/.env only.
 #
-# With provider: auto, compose can pin routing via HERMES_DEFAULT_PROVIDER + HERMES_BASE_URL +
-# CUSTOM_API_KEY / OPENAI_API_KEY.
+# 「完整」释义：Hermes 在 load_config() 会与内置 DEFAULT_CONFIG 合并；网关读 model 等对
+# read_raw_config 的路径只看见本文件的键。可按需增补：更全模板见仓库 cli-config.yaml.example
+# （cp cli-config.yaml.example 到此路径后再改 model 亦可）。
+#
+# DeploymentNotFound 时：核对 Azure 门户「部署名称」必须与 model.default 完全一致。
+# =============================================================================
 
+_config_version: 23
+
+# -----------------------------------------------------------------------------
+# Model — 必须与 HERMES_BASE_URL 后端的 deployment / model id 一致
+# provider: auto 时，仍可被 deploy/.env 的 HERMES_DEFAULT_PROVIDER=custom + HERMES_BASE_URL
+#（及 CUSTOM_API_KEY / OPENAI_API_KEY）接管路由；不要把 api_key 写进 YAML。
+# -----------------------------------------------------------------------------
 model:
-  default: "gpt-5-mini"
+  default: "gpt-5.4-nano"
   provider: "auto"
-  base_url: "https://openrouter.ai/api/v1"
+  base_url: "https://www-0504-resource.services.ai.azure.com/api/projects/www-0504/openai/v1"
 
+# -----------------------------------------------------------------------------
+# Terminal（API/Gateway）：容器内 cwd 落在数据卷 workspace，可按需改成 "."
+# -----------------------------------------------------------------------------
 terminal:
   backend: "local"
-  cwd: "."
+  cwd: "/opt/data/workspace"
   timeout: 180
   docker_mount_cwd_to_workspace: false
   lifetime_seconds: 300
+  container_cpu: 1
+  container_memory: 5120
+  container_disk: 51200
+  container_persistent: true
+
+# -----------------------------------------------------------------------------
+browser:
+  inactivity_timeout: 120
+
+# -----------------------------------------------------------------------------
+compression:
+  enabled: true
+  threshold: 0.50
+  target_ratio: 0.20
+  protect_last_n: 20
+
+# -----------------------------------------------------------------------------
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  memory_char_limit: 2200
+  user_char_limit: 1375
+  nudge_interval: 10
+  flush_min_turns: 6
+
+# -----------------------------------------------------------------------------
+session_reset:
+  mode: both
+  idle_minutes: 1440
+  at_hour: 4
+group_sessions_per_user: true
+
+# -----------------------------------------------------------------------------
+streaming:
+  enabled: false
+
+# -----------------------------------------------------------------------------
+skills:
+  creation_nudge_interval: 15
+
+# -----------------------------------------------------------------------------
+agent:
+  max_turns: 60
+  verbose: false
+  reasoning_effort: "medium"
+  personalities:
+    helpful: "You are a helpful, friendly AI assistant."
+    concise: "You are a concise assistant. Keep responses brief and to the point."
+    technical: "You are a technical expert. Provide detailed, accurate technical information."
+    creative: "You are a creative assistant. Think outside the box and offer innovative solutions."
+    teacher: "You are a patient teacher. Explain concepts clearly with examples."
+    kawaii: "You are a kawaii assistant! Use cute expressions like (◕‿◕), ★, ♪, and ~! Add sparkles and be super enthusiastic about everything! Every response should feel warm and adorable desu~! ヽ(>∀<☆)ノ"
+
+# -----------------------------------------------------------------------------
+# Lingtan 云同步策略（可被 LINGTAN_SYNC_* / 网关环境覆盖）
+# -----------------------------------------------------------------------------
+lingtan_sync:
+  profile: "hybrid"
+  cloud_base_url: ""
+  outbound_enabled: true
+  require_explicit_allow: false
+  blocked_object_types: []
+  max_event_json_bytes: 524288
+
+# -----------------------------------------------------------------------------
+lingtan_ui:
+  subagent_prompt_extra: ""
+  agents:
+    - id: "engineering"
+      name: "工程与代码"
+      description: "读写文件、补丁、搜索仓库、终端与代码执行子任务"
+      toolsets: ["file", "terminal", "code_execution"]
+      enabled: true
+    - id: "research"
+      name: "检索与浏览器"
+      description: "网页检索、摘录与浏览器取证类子任务"
+      toolsets: ["web", "browser"]
+      enabled: true
+    - id: "office"
+      name: "规划与技能"
+      description: "待办拆分、会话检索、按需查阅 Skills 手册类子任务"
+      toolsets: ["skills", "todo", "session_search"]
+      enabled: true

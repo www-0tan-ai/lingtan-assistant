@@ -1,0 +1,18 @@
+# Bind-mounted into the backend container as /opt/data/config.yaml (see deploy/docker-compose.lingtan.yml).
+# Tune model.default here so it matches your upstream deployment name — compose env alone does not
+# replace gateway _resolve_gateway_model(), which reads this file verbatim.
+#
+# With provider: auto, compose can pin routing via HERMES_DEFAULT_PROVIDER + HERMES_BASE_URL +
+# CUSTOM_API_KEY / OPENAI_API_KEY.
+
+model:
+  default: "gpt-5-mini"
+  provider: "auto"
+  base_url: "https://openrouter.ai/api/v1"
+
+terminal:
+  backend: "local"
+  cwd: "."
+  timeout: 180
+  docker_mount_cwd_to_workspace: false
+  lifetime_seconds: 300

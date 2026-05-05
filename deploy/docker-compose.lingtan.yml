@@ -35,6 +35,8 @@ services:
     command: ["gateway", "run"]
     volumes:
       - lingtan_data:/opt/data
+      # Version-controlled defaults; avoids first-boot cli-config copying a mismatched model.default.
+      - ./hermes-docker/config.yaml:/opt/data/config.yaml
 
   lingtan-frontend:
     build:

@@ -14,6 +14,7 @@ cp .env.example .env
 - **`API_SERVER_CORS_ORIGINS`**：须包含用户浏览器里的前端地址（例如 `http://你的公网IP:6121`），否则注册/登录在浏览器里会因 CORS 失败（与 502 不同，但常被一起排查）。
 
 - `HERMES_BASE_URL` + `CUSTOM_API_KEY`（或 `OPENAI_API_KEY`）：与 `HERMES_DEFAULT_PROVIDER=custom` 一起供网关推理；仅写进 compose 不够时，默认 `config.yaml` 仍是 `provider: auto` + OpenRouter，会导致上游 **401 Missing Authentication**。
+- **`deploy/hermes-docker/config.yaml`**：挂载为容器内 **`/opt/data/config.yaml`**（与卷里其它数据并存；该文件在宿主机编辑后一般需 **restart backend** 才确保进程重读）。网关选用的 **`model.default`** 以该文件为准；请改成与 **`HERMES_BASE_URL`** 后端一致的**部署名/模型 ID**（如 Azure 上的 deployment）。**`deploy/.env` 里的 `HERMES_DEFAULT_MODEL` 不能替代该文件的 `model.default`**（若仅用 env 调模型，须在容器内改此挂载文件或使用会写回 `config.yaml` 的网关命令）。
 - 至少一个可用密钥（如 `OPENAI_API_KEY` 或 `CUSTOM_API_KEY`）
 
 ## 自建前端 dev server 与内置 `/app` 登录对齐（与 Hermes 一致）

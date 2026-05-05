@@ -515,6 +515,11 @@ class TestCapabilitiesEndpoint:
             assert data["features"]["run_events_sse"] is True
             assert data["features"]["session_continuity_header"] == "X-Hermes-Session-Id"
             assert data["endpoints"]["run_status"]["path"] == "/v1/runs/{run_id}"
+            ltk = data.get("lingtan_browser_sdk")
+            assert isinstance(ltk, dict)
+            assert isinstance(ltk.get("contract_version"), int)
+            assert ltk.get("local_storage_keys", {}).get("access_token") == "wb_access_token"
+            assert data["endpoints"]["lingtan_auth_refresh"]["path"] == "/v1/auth/refresh"
 
     @pytest.mark.asyncio
     async def test_capabilities_requires_auth_when_key_configured(self, auth_adapter):

@@ -16,6 +16,15 @@ cp .env.example .env
 - `HERMES_BASE_URL` + `CUSTOM_API_KEY`（或 `OPENAI_API_KEY`）：与 `HERMES_DEFAULT_PROVIDER=custom` 一起供网关推理；仅写进 compose 不够时，默认 `config.yaml` 仍是 `provider: auto` + OpenRouter，会导致上游 **401 Missing Authentication**。
 - 至少一个可用密钥（如 `OPENAI_API_KEY` 或 `CUSTOM_API_KEY`）
 
+## 自建前端 dev server 与内置 `/app` 登录对齐（与 Hermes 一致）
+
+Hermes CLI **没有**邮箱密码登录；浏览器里的「灵碳账号」只属于 **当前 API Server 进程**内置的 SQLite（CloudSync）。
+
+- **接口**：一律走 `POST {BACKEND_URL}/v1/auth/register`、`POST …/v1/auth/login`，请求体 `{ email, password }`（可选 `device_id`），响应里令牌字段 **`access_token` / `refresh_token`**。
+- **鉴权**：`Authorization: Bearer <access_token>`；若部署了 **`API_SERVER_KEY`**，同类 OpenAI 兼容路由也可 Bearer 该密钥（白牌壳层已支持「网关密钥」入口）。
+- **localStorage 键名（勿另起炉灶）**：以 `GET {BACKEND_URL}/v1/capabilities` 返回的 **`lingtan_browser_sdk.local_storage_keys`** 为准（与仓库内 **`ui-cloud-local/lingtan-auth-contract.js`** 同步）；自建 Vue/React（如 compose 指向的私有前端镜像）应复制该文件或启动时 fetch capabilities 对齐键名。
+- **Vite/webpack**：把 `LINGTAN_API_BASE`/`__HERMES_UI_API_BASE__` 指到后端根（例如 `http://localhost:8650`，无路径尾 `/`）；并保证 **`API_SERVER_CORS_ORIGINS`** 包含前端的 Origin。
+
 ## 2) 启动
 
 ```bash

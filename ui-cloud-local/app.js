@@ -1,13 +1,49 @@
+/**
+ * 与 `lingtan-auth-contract.js` / `GET /v1/capabilities` → `lingtan_browser_sdk` 对齐。
+ * 自建前端 dev server：请复制 `lingtan-auth-contract.js`，勿改 wb_* 键名。
+ */
+function lingtanContract() {
+  const c = typeof window !== "undefined" && window.LINGTAN_AUTH_CONTRACT ? window.LINGTAN_AUTH_CONTRACT : null;
+  if (c) return c;
+  return {
+    CONTRACT_VERSION: 0,
+    localStorageKeys: {
+      accessToken: "wb_access_token",
+      refreshToken: "wb_refresh_token",
+      gatewayBearer: "wb_gateway_bearer",
+      deviceId: "wb_device_id",
+      syncCursor: "wb_sync_cursor",
+      hermesSessionId: "wb_hermes_session_id",
+      chatFork: "wb_chat_fork",
+      subagent: "wb_subagent",
+      subagentLegacy: "wb_sunagent",
+    },
+    paths: {
+      register: "/v1/auth/register",
+      login: "/v1/auth/login",
+      refresh: "/v1/auth/refresh",
+      logout: "/v1/auth/logout",
+      capabilities: "/v1/capabilities",
+    },
+    jsonFields: { accessToken: "access_token", refreshToken: "refresh_token" },
+  };
+}
+
+const LC = lingtanContract();
+const LS = LC.localStorageKeys;
+const LP = LC.paths;
+const LF = LC.jsonFields;
+
 /** One-time: rename mistaken "sunagent" localStorage key → subagent delegate mode. */
-function migrateSubagentLocalStorage() {
-  if (localStorage.getItem("wb_subagent") != null) return;
-  const legacy = localStorage.getItem("wb_sunagent");
+function migrateSubagentLocalStorage(keys) {
+  if (localStorage.getItem(keys.subagent) != null) return;
+  const legacy = localStorage.getItem(keys.subagentLegacy);
   if (legacy != null) {
-    localStorage.setItem("wb_subagent", legacy);
-    localStorage.removeItem("wb_sunagent");
+    localStorage.setItem(keys.subagent, legacy);
+    localStorage.removeItem(keys.subagentLegacy);
   }
 }
-migrateSubagentLocalStorage();
+migrateSubagentLocalStorage(LS);
 
 function getApiBase() {
   try {
@@ -37,14 +73,14 @@ function showOriginWarnings() {
 }
 
 const state = {
-  accessToken: localStorage.getItem("wb_access_token") || "",
+  accessToken: localStorage.getItem(LS.accessToken) || "",
   /** 与网关 API_SERVER_KEY 相同，用于 OpenAI 兼容鉴权下浏览 Skills/Agents（无需灵碳账号） */
-  gatewayBearer: localStorage.getItem("wb_gateway_bearer") || "",
-  deviceId: localStorage.getItem("wb_device_id") || "",
-  pullCursor: Number(localStorage.getItem("wb_sync_cursor")) || 0,
+  gatewayBearer: localStorage.getItem(LS.gatewayBearer) || "",
+  deviceId: localStorage.getItem(LS.deviceId) || "",
+  pullCursor: Number(localStorage.getItem(LS.syncCursor)) || 0,
   email: "",
-  hermesSessionId: localStorage.getItem("wb_hermes_session_id") || "",
-  subagentDelegateMode: localStorage.getItem("wb_subagent") === "1",
+  hermesSessionId: localStorage.getItem(LS.hermesSessionId) || "",
+  subagentDelegateMode: localStorage.getItem(LS.subagent) === "1",
 };
 
 /** Full skill payloads from GET /v1/assistant/skills (for filtering). */
@@ -86,8 +122,19 @@ function bearerForOpenAICompat() {
 function persistGatewayBearer(raw) {
   const v = String(raw || "").trim();
   state.gatewayBearer = v;
-  if (v) localStorage.setItem("wb_gateway_bearer", v);
-  else localStorage.removeItem("wb_gateway_bearer");
+  if (v) localStorage.setItem(LS.gatewayBearer, v);
+  else localStorage.removeItem(LS.gatewayBearer);
+}
+
+/** 写入灵碳 JWT / refresh_token（键名见 LINGTAN_AUTH_CONTRACT）。 */
+function persistTokensFromLogin(body) {
+  const atRaw = body && body[LF.accessToken];
+  state.accessToken = atRaw ? String(atRaw).trim() : "";
+  if (state.accessToken) localStorage.setItem(LS.accessToken, state.accessToken);
+  else localStorage.removeItem(LS.accessToken);
+  const rtRaw = body && body[LF.refreshToken];
+  if (rtRaw) localStorage.setItem(LS.refreshToken, String(rtRaw).trim());
+  else localStorage.removeItem(LS.refreshToken);
 }
 
 /** 仅网关密钥、无灵碳账号时，用本地 web- 会话走 SessionDB。 */
@@ -95,8 +142,8 @@ async function ensureLocalWebSessionForGatewayOnly() {
   if (state.accessToken) return;
   if ((state.hermesSessionId || "").trim()) return;
   state.hermesSessionId = generateForkedWebSessionId();
-  localStorage.setItem("wb_hermes_session_id", state.hermesSessionId);
-  localStorage.setItem("wb_chat_fork", "1");
+  localStorage.setItem(LS.hermesSessionId, state.hermesSessionId);
+  localStorage.setItem(LS.chatFork, "1");
   updateSessionHint();
 }
 
@@ -116,15 +163,15 @@ function generateForkedWebSessionId() {
 /**
  * Align Web UI Hermes SessionDB id with gateway policy:
  * - Normal: Lingtan-account default (`GET /v1/assistant/chat-session/default`) → same thread after clearing storage.
- * - Forked (“新建对话”): random `web-…`, only stored locally (`wb_chat_fork=1`).
+ * - Forked (“新建对话”): random `web-…`, only stored locally（`LINGTAN_AUTH_CONTRACT.localStorageKeys.chatFork`）。
  */
 async function hydrateHermesSessionFromServer() {
   if (!state.accessToken) return;
-  const fork = localStorage.getItem("wb_chat_fork") === "1";
+  const fork = localStorage.getItem(LS.chatFork) === "1";
   if (fork) {
     if (!(state.hermesSessionId || "").trim()) {
       state.hermesSessionId = generateForkedWebSessionId();
-      localStorage.setItem("wb_hermes_session_id", state.hermesSessionId);
+      localStorage.setItem(LS.hermesSessionId, state.hermesSessionId);
     }
     updateSessionHint();
     return;
@@ -134,12 +181,12 @@ async function hydrateHermesSessionFromServer() {
     const sid = String(data.session_id || "").trim();
     if (!sid) throw new Error("empty session_id");
     state.hermesSessionId = sid;
-    localStorage.setItem("wb_hermes_session_id", sid);
+    localStorage.setItem(LS.hermesSessionId, sid);
   } catch (e) {
     console.warn("chat-session/default failed:", e);
     if (!(state.hermesSessionId || "").trim()) {
       state.hermesSessionId = generateForkedWebSessionId();
-      localStorage.setItem("wb_hermes_session_id", state.hermesSessionId);
+      localStorage.setItem(LS.hermesSessionId, state.hermesSessionId);
     }
   }
   updateSessionHint();
@@ -168,7 +215,7 @@ function updateSessionHint() {
   const el = $("session-hint");
   if (!el) return;
   const sid = state.hermesSessionId || "";
-  const fork = localStorage.getItem("wb_chat_fork") === "1";
+  const fork = localStorage.getItem(LS.chatFork) === "1";
   const label = fork ? "[分支会话] " : "[主会话·账号默认] ";
   el.textContent = sid ? `${label}${sid.slice(0, 40)}…` : `${label}(未就绪)`;
 }
@@ -705,7 +752,7 @@ async function sendChat() {
     const hdrSid = resp.headers.get("X-Hermes-Session-Id");
     if (hdrSid && hdrSid.trim()) {
       state.hermesSessionId = hdrSid.trim();
-      localStorage.setItem("wb_hermes_session_id", state.hermesSessionId);
+      localStorage.setItem(LS.hermesSessionId, state.hermesSessionId);
       updateSessionHint();
     }
 
@@ -720,7 +767,7 @@ async function register() {
   try {
     const email = $("email").value.trim();
     const password = $("password").value;
-    const data = await api("/v1/auth/register", {
+    const data = await api(LP.register, {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
@@ -735,12 +782,11 @@ async function login() {
   try {
     const email = $("email").value.trim();
     const password = $("password").value;
-    const data = await api("/v1/auth/login", {
+    const data = await api(LP.login, {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    state.accessToken = data.access_token;
-    localStorage.setItem("wb_access_token", state.accessToken);
+    persistTokensFromLogin(data);
     setPanel("account-result", data);
     showApp();
     await bootstrapLoggedInUi();
@@ -757,12 +803,11 @@ async function landingLogin() {
       setLoginError("请输入邮箱和密码");
       return;
     }
-    const data = await api("/v1/auth/login", {
+    const data = await api(LP.login, {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    state.accessToken = data.access_token;
-    localStorage.setItem("wb_access_token", state.accessToken);
+    persistTokensFromLogin(data);
     $("email").value = email;
     $("password").value = password;
     setPanel("account-result", data);
@@ -782,7 +827,7 @@ async function landingRegister() {
       setLoginError("请输入邮箱和密码");
       return;
     }
-    await api("/v1/auth/register", {
+    await api(LP.register, {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
@@ -805,7 +850,7 @@ async function bindDevice() {
     });
     if (data.device_id) {
       state.deviceId = data.device_id;
-      localStorage.setItem("wb_device_id", state.deviceId);
+      localStorage.setItem(LS.deviceId, state.deviceId);
     }
     setPanel("account-result", data);
   } catch (err) {
@@ -858,7 +903,7 @@ async function pullEvents() {
       attachDevice: true,
     });
     state.pullCursor = data.next_cursor ?? state.pullCursor;
-    localStorage.setItem("wb_sync_cursor", String(state.pullCursor));
+    localStorage.setItem(LS.syncCursor, String(state.pullCursor));
     setPanel("sync-result", data);
   } catch (err) {
     setPanel("sync-result", `拉取失败: ${err.message}`);
@@ -880,13 +925,14 @@ function logout() {
   const rcf = $("rail-catalog-filter");
   if (rcf) rcf.value = "";
   state.accessToken = "";
-  localStorage.removeItem("wb_access_token");
-  localStorage.removeItem("wb_chat_fork");
-  localStorage.removeItem("wb_device_id");
-  localStorage.removeItem("wb_sync_cursor");
-  localStorage.removeItem("wb_hermes_session_id");
-  localStorage.removeItem("wb_subagent");
-  localStorage.removeItem("wb_sunagent");
+  localStorage.removeItem(LS.accessToken);
+  localStorage.removeItem(LS.refreshToken);
+  localStorage.removeItem(LS.chatFork);
+  localStorage.removeItem(LS.deviceId);
+  localStorage.removeItem(LS.syncCursor);
+  localStorage.removeItem(LS.hermesSessionId);
+  localStorage.removeItem(LS.subagent);
+  localStorage.removeItem(LS.subagentLegacy);
   state.deviceId = "";
   state.pullCursor = 0;
   state.hermesSessionId = "";
@@ -920,7 +966,7 @@ function syncSubagentDelegateCheckbox() {
   chk.checked = Boolean(state.subagentDelegateMode);
   chk.addEventListener("change", () => {
     state.subagentDelegateMode = chk.checked;
-    localStorage.setItem("wb_subagent", state.subagentDelegateMode ? "1" : "0");
+    localStorage.setItem(LS.subagent, state.subagentDelegateMode ? "1" : "0");
   });
 }
 
@@ -985,19 +1031,19 @@ function init() {
   $("refresh-skills")?.addEventListener("click", refreshSkillsCatalog);
   $("refresh-agents")?.addEventListener("click", refreshAgentsRoster);
   $("new-chat")?.addEventListener("click", async () => {
-    localStorage.setItem("wb_chat_fork", "1");
+    localStorage.setItem(LS.chatFork, "1");
     clearChatLog();
     state.hermesSessionId = "";
-    localStorage.removeItem("wb_hermes_session_id");
+    localStorage.removeItem(LS.hermesSessionId);
     await hydrateHermesSessionFromServer();
     if (!(state.hermesSessionId || "").trim()) await ensureLocalWebSessionForGatewayOnly();
   });
 
   $("restore-main-chat")?.addEventListener("click", async () => {
-    localStorage.removeItem("wb_chat_fork");
+    localStorage.removeItem(LS.chatFork);
     clearChatLog();
     state.hermesSessionId = "";
-    localStorage.removeItem("wb_hermes_session_id");
+    localStorage.removeItem(LS.hermesSessionId);
     await hydrateHermesSessionFromServer();
     if (!(state.hermesSessionId || "").trim()) await ensureLocalWebSessionForGatewayOnly();
     await loadConversationIntoChat();

@@ -1474,6 +1474,35 @@ class APIServerAdapter(BasePlatformAdapter):
             "object": "hermes.api_server.capabilities",
             "platform": "hermes-agent",
             "model": self._model_name,
+            "lingtan_browser_sdk": {
+                "contract_version": 1,
+                "notes": (
+                    "Browser SPAs reuse these paths + optional localStorage keys. "
+                    "Hermes CLI has no Lingtan JWT; accounts live in API Server CloudSyncStore (SQLite)."
+                ),
+                "local_storage_keys": {
+                    "access_token": "wb_access_token",
+                    "refresh_token": "wb_refresh_token",
+                    "gateway_bearer_optional": "wb_gateway_bearer",
+                    "device_id": "wb_device_id",
+                    "sync_cursor": "wb_sync_cursor",
+                    "hermes_session_id": "wb_hermes_session_id",
+                    "chat_fork": "wb_chat_fork",
+                    "subagent_toggle": "wb_subagent",
+                },
+                "auth_http": {
+                    "register_body": ["email", "password"],
+                    "login_body_required": ["email", "password"],
+                    "login_body_optional": ["device_id"],
+                    "login_response_access_token_field": "access_token",
+                    "login_response_refresh_token_field": "refresh_token",
+                    "authorize_header": "Authorization: Bearer <access_token>",
+                    "alternate_openai_compat_bearer": (
+                        "When API_SERVER_KEY is set, Bearer may equal that key for catalog/chat routes "
+                        "(see _check_auth_openai_compat)."
+                    ),
+                },
+            },
             "auth": {
                 "type": "bearer",
                 "required": bool(self._api_key),
@@ -1510,6 +1539,8 @@ class APIServerAdapter(BasePlatformAdapter):
                 "run_stop": {"method": "POST", "path": "/v1/runs/{run_id}/stop"},
                 "lingtan_auth_register": {"method": "POST", "path": "/v1/auth/register"},
                 "lingtan_auth_login": {"method": "POST", "path": "/v1/auth/login"},
+                "lingtan_auth_refresh": {"method": "POST", "path": "/v1/auth/refresh"},
+                "lingtan_auth_logout": {"method": "POST", "path": "/v1/auth/logout"},
                 "lingtan_sync_push": {"method": "POST", "path": "/v1/sync/push"},
                 "lingtan_sync_pull": {"method": "GET", "path": "/v1/sync/pull"},
                 "lingtan_workspaces_list": {"method": "GET", "path": "/v1/workspaces"},

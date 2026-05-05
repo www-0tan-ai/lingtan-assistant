@@ -119,9 +119,8 @@ function showTab(tab, opts = {}) {
   const doRefetch = opts.refetch !== false;
   document.querySelectorAll(".nav-btn").forEach((x) => x.classList.remove("active"));
   document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-  const nav = document.querySelector(`.nav-btn[data-tab="${tab}"]`);
+  document.querySelectorAll(`.nav-btn[data-tab="${tab}"]`).forEach((nav) => nav.classList.add("active"));
   const panel = document.getElementById(`tab-${tab}`);
-  if (nav) nav.classList.add("active");
   if (panel) panel.classList.add("active");
   if (!doRefetch) return;
   if (tab === "skills" && state.accessToken) refreshSkillsCatalog();

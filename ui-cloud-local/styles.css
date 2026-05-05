@@ -490,8 +490,37 @@ button.rail-item.is-default {
   color: #3a4663;
 }
 
+.mobile-tab-strip {
+  display: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid #e2e7f2;
+  background: rgba(255, 255, 255, 0.85);
+}
+.mobile-tab-strip .mobile-tab-btn {
+  flex: 1 1 auto;
+  min-width: 76px;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  border-radius: 8px;
+  border: 1px solid #d5dbe8;
+  background: #fff;
+  color: #3f4656;
+}
+.mobile-tab-strip .mobile-tab-btn.active {
+  background: #e9eef9;
+  border-color: #b8c4df;
+  color: #233a74;
+  font-weight: 600;
+}
+
 @media (max-width: 980px) {
   .left-rail { display: none; }
+  .mobile-tab-strip { display: flex; }
   .main-stage { padding: 14px; }
   .hero h1 { font-size: 30px; }
   .login-card h1 { font-size: 34px; }

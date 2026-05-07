@@ -1,5 +1,5 @@
 /**
- * tui_gateway JSON-RPC over WebSocket — WorkBuddy-style side rails for Agent / Skills / Tools.
+ * tui_gateway JSON-RPC over WebSocket — WorkBuddy-style nav + full-width workspace views.
  */
 (() => {
   const REQUEST_TIMEOUT_MS = 120000;
@@ -111,6 +111,10 @@
   const bgProcsList = document.getElementById("bg-procs-list");
   const modal = document.getElementById("modal");
   const quickPills = document.getElementById("quick-pills");
+  const viewChat = document.getElementById("view-chat");
+  const viewSkills = document.getElementById("view-skills");
+  const viewTools = document.getElementById("view-tools");
+  const navMenu = document.getElementById("nav-menu");
 
   let sessionId = null;
   let turnBusy = false;
@@ -123,6 +127,16 @@
   let skillsByCategory = null;
   /** @type {string} */
   let skillsFilterCat = "__all__";
+
+  function setView(name) {
+    const v = name === "skills" || name === "tools" ? name : "chat";
+    viewChat.classList.toggle("view-active", v === "chat");
+    viewSkills.classList.toggle("view-active", v === "skills");
+    viewTools.classList.toggle("view-active", v === "tools");
+    navMenu.querySelectorAll(".nav-item").forEach((el) => {
+      el.classList.toggle("active", el.getAttribute("data-view") === v);
+    });
+  }
 
   function setConn(ok, text) {
     connPill.textContent = text;
@@ -185,7 +199,7 @@
     const q = (skillsSearch.value || "").trim().toLowerCase();
     if (!skillsByCategory || !countSkills(skillsByCategory)) {
       skillsCount.textContent = "";
-      skillsList.className = "skills-list skill-grid muted";
+      skillsList.className = "skills-list skill-grid skill-grid-page muted";
       skillsList.textContent = "暂无可用 Skills（或仍在加载）";
       return;
     }
@@ -201,7 +215,7 @@
     }
     items.sort((a, b) => a.name.localeCompare(b.name));
     skillsCount.textContent = items.length ? `${items.length} 项` : "0 项";
-    skillsList.className = "skills-list skill-grid";
+    skillsList.className = "skills-list skill-grid skill-grid-page";
     if (!items.length) {
       skillsList.innerHTML =
         '<div class="muted" style="grid-column:1/-1;padding:8px;font-size:0.75rem;line-height:1.4">无匹配技能，可切换分类或清空搜索</div>';
@@ -397,7 +411,7 @@
     skillsFilterCat = "__all__";
     skillsSearch.value = "";
     skillsFilters.innerHTML = "";
-    skillsList.className = "skills-list skill-grid muted";
+    skillsList.className = "skills-list skill-grid skill-grid-page muted";
     skillsList.textContent = "加载中…";
     skillsCount.textContent = "";
     toolsetsList.className = "toolsets-list muted";
@@ -601,12 +615,20 @@
 
   skillsSearch.addEventListener("input", () => paintSkillsGrid());
 
+  navMenu.addEventListener("click", (e) => {
+    const btn = e.target.closest(".nav-item");
+    if (!btn) return;
+    const v = btn.getAttribute("data-view");
+    if (v) setView(v);
+  });
+
   skillsList.addEventListener("click", (e) => {
     const card = e.target.closest(".skill-card");
     if (!card) return;
     const skill = card.getAttribute("data-skill");
     if (!skill) return;
     const prefix = skill.startsWith("/") ? skill : `/${skill}`;
+    setView("chat");
     input.value = `${prefix} `;
     input.focus();
   });

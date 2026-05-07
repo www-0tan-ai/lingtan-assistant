@@ -8,105 +8,130 @@
   </head>
   <body>
     <div class="app">
-      <aside class="sidebar">
-        <div class="brand-block">
-          <div class="brand">
-            <div class="brand-title">Hermes</div>
-            <div class="brand-sub">本地助手 · 与 Ink 同源网关</div>
-          </div>
-          <input
-            type="search"
-            id="skills-search"
-            class="sidebar-search"
-            placeholder="搜索已安装技能…"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <button type="button" class="btn btn-cta btn-block" id="btn-new">+ 新建对话</button>
-          <button type="button" class="btn btn-ghost btn-block" id="btn-refresh">刷新侧栏</button>
+      <aside class="nav-rail" aria-label="主导航">
+        <div class="nav-brand">
+          <div class="nav-brand-name">Hermes</div>
+          <div class="nav-brand-ver muted">本地</div>
         </div>
 
-        <details class="fold-panel" open>
-          <summary class="fold-summary">
-            <span class="fold-title">Agent</span>
-            <span class="fold-hint muted">模型与运行环境</span>
-          </summary>
-          <div id="agent-card" class="agent-card muted">等待会话…</div>
-        </details>
+        <nav class="nav-menu" id="nav-menu">
+          <button type="button" class="nav-item active" data-view="chat">对话</button>
+          <button type="button" class="nav-item" data-view="skills">技能</button>
+          <button type="button" class="nav-item" data-view="tools">工具</button>
+        </nav>
 
-        <section class="panel skills-panel">
-          <div class="section-head">
-            <div>
-              <h3 class="section-title">已安装技能</h3>
-              <p class="section-sub muted">点击卡片可将 /技能名 填入输入框</p>
-            </div>
-            <span id="skills-count" class="badge"></span>
-          </div>
-          <div id="skills-filters" class="filter-pills" aria-label="技能分类"></div>
-          <div id="skills-list" class="skills-list skill-grid muted">—</div>
-        </section>
+        <div class="nav-spacer"></div>
 
-        <div class="sidebar-foot">
+        <button type="button" class="btn btn-ghost btn-block nav-refresh" id="btn-refresh">刷新数据</button>
+        <div class="nav-foot">
           <span id="conn-pill" class="pill">连接中…</span>
         </div>
       </aside>
 
-      <main class="main">
-        <header class="main-topbar">
-          <div class="main-topbar-text">
-            <h1 class="main-title">对话</h1>
-            <p class="main-subtitle muted">连接一切，无所不能</p>
+      <div class="workspace">
+        <!-- 对话 -->
+        <section id="view-chat" class="view view-active" aria-label="对话">
+          <header class="main-topbar">
+            <div class="main-topbar-text">
+              <h1 class="main-title">对话</h1>
+              <p class="main-subtitle muted">与 Ink 共用 tui_gateway · 仅本机回环</p>
+            </div>
+            <div class="main-topbar-actions chat-top-actions">
+              <button type="button" class="btn btn-cta btn-compact" id="btn-new">+ 新建对话</button>
+              <div class="pills pills-inline" id="quick-pills"></div>
+            </div>
+          </header>
+          <section class="transcript" id="transcript"></section>
+          <footer class="composer-wrap">
+            <div class="composer">
+              <textarea
+                id="input"
+                rows="3"
+                placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
+              ></textarea>
+              <div class="composer-actions">
+                <span class="hint muted">内容由 AI 生成，请核实重要信息。</span>
+                <div class="btns">
+                  <button type="button" class="btn secondary" id="btn-stop" disabled>
+                    停止
+                  </button>
+                  <button type="button" class="btn primary" id="btn-send">发送</button>
+                </div>
+              </div>
+            </div>
+          </footer>
+        </section>
+
+        <!-- 技能（WorkBuddy 式主内容区） -->
+        <section id="view-skills" class="view" aria-label="技能">
+          <div class="page-scroll">
+            <div class="page-inner">
+              <header class="page-header">
+                <div>
+                  <h1 class="page-title">技能</h1>
+                  <p class="page-lead muted">赋予 Hermes 可组合的能力 · 点击卡片插入 /技能名 到对话</p>
+                </div>
+                <div class="page-header-tools">
+                  <input
+                    type="search"
+                    id="skills-search"
+                    class="page-search"
+                    placeholder="搜索已安装技能…"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <span id="skills-count" class="badge badge-lg"></span>
+                </div>
+              </header>
+
+              <div id="skills-filters" class="filter-pills filter-pills-page" aria-label="技能分类"></div>
+              <div id="skills-list" class="skills-list skill-grid skill-grid-page muted">—</div>
+            </div>
           </div>
-          <div class="main-topbar-actions">
-            <div class="pills pills-inline" id="quick-pills"></div>
-          </div>
-        </header>
-        <section class="transcript" id="transcript"></section>
-        <footer class="composer-wrap">
-          <div class="composer">
-            <textarea
-              id="input"
-              rows="3"
-              placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
-            ></textarea>
-            <div class="composer-actions">
-              <span class="hint muted">内容由 AI 生成，请核实重要信息。</span>
-              <div class="btns">
-                <button type="button" class="btn secondary" id="btn-stop" disabled>
-                  停止
-                </button>
-                <button type="button" class="btn primary" id="btn-send">发送</button>
+        </section>
+
+        <!-- 工具与运行环境 -->
+        <section id="view-tools" class="view" aria-label="工具">
+          <div class="page-scroll">
+            <div class="page-inner page-inner-tools">
+              <header class="page-header page-header-tight">
+                <div>
+                  <h1 class="page-title">工具与环境</h1>
+                  <p class="page-lead muted">Agent 状态、工具集、本回合调用与子任务</p>
+                </div>
+              </header>
+
+              <h2 class="block-title">Agent</h2>
+              <div id="agent-card" class="agent-card agent-card-wide muted">等待会话…</div>
+
+              <div class="tools-block">
+                <h2 class="block-title">工具集</h2>
+                <p class="block-sub muted">当前会话启用的工具分组与工具名</p>
+                <div id="toolsets-list" class="toolsets-list toolsets-list-page muted">—</div>
+              </div>
+
+              <div class="tools-columns">
+                <div class="tools-col">
+                  <h2 class="block-title">本回合工具</h2>
+                  <p class="block-sub muted">本轮模型调用的工具流水</p>
+                  <ul id="activity-list" class="activity-list"></ul>
+                </div>
+                <div class="tools-col">
+                  <h2 class="block-title">子 Agent</h2>
+                  <p class="block-sub muted">委派与子任务</p>
+                  <div id="subagent-list" class="compact-list muted">—</div>
+                </div>
+              </div>
+
+              <div class="tools-block">
+                <h2 class="block-title">后台进程</h2>
+                <p class="block-sub muted">终端 / 长任务登记</p>
+                <div id="bg-procs-list" class="compact-list muted">—</div>
               </div>
             </div>
           </div>
-        </footer>
-      </main>
-
-      <aside class="right-rail">
-        <section class="rail-section">
-          <h3 class="rail-title">工具集</h3>
-          <p class="rail-sub muted">当前会话可用的工具分组</p>
-          <div id="toolsets-list" class="toolsets-list muted">—</div>
         </section>
-
-        <section class="rail-section">
-          <h3 class="rail-title">本回合工具</h3>
-          <p class="rail-sub muted">本轮模型调用的工具流水</p>
-          <ul id="activity-list" class="activity-list"></ul>
-        </section>
-
-        <section class="rail-section">
-          <h3 class="rail-title">子 Agent</h3>
-          <p class="rail-sub muted">委派与子任务</p>
-          <div id="subagent-list" class="compact-list muted">无运行中的子 Agent</div>
-        </section>
-
-        <section class="rail-section rail-section-last">
-          <h3 class="rail-title">后台进程</h3>
-          <p class="rail-sub muted">终端 / 长任务登记</p>
-          <div id="bg-procs-list" class="compact-list muted">—</div>
-        </section>
-      </aside>
+      </div>
     </div>
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true"></div>
     <script src="/app.js"></script>

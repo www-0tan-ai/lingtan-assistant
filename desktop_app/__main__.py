@@ -9,6 +9,9 @@ import sys
 def main() -> None:
     # Hermes desktop is interactive; unbuffered stderr helps diagnose import issues.
     os.environ.setdefault("PYTHONUNBUFFERED", "1")
+    # Chinese Windows defaults to legacy code pages; UTF-8 avoids stray decode errors.
+    if sys.platform == "win32":
+        os.environ.setdefault("PYTHONUTF8", "1")
 
     from PySide6.QtWidgets import QApplication
 

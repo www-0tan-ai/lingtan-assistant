@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hermes</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-title">Hermes</div>
+          <div class="brand-sub">Electron · 本地助手</div>
+        </div>
+        <button type="button" class="btn secondary" id="btn-new">新对话</button>
+        <div class="sidebar-foot">
+          <span id="conn-pill" class="pill">连接中…</span>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="hero">
+          <h1>连接一切，无所不能</h1>
+          <p class="muted">与 Ink / Dashboard 共用同一套 tui_gateway · 仅监听本机回环</p>
+          <div class="pills" id="quick-pills"></div>
+        </header>
+        <section class="transcript" id="transcript"></section>
+        <footer class="composer-wrap">
+          <div class="composer">
+            <textarea
+              id="input"
+              rows="3"
+              placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
+            ></textarea>
+            <div class="composer-actions">
+              <span class="hint muted">内容由 AI 生成，请核实重要信息。</span>
+              <div class="btns">
+                <button type="button" class="btn secondary" id="btn-stop" disabled>
+                  停止
+                </button>
+                <button type="button" class="btn primary" id="btn-send">发送</button>
+              </div>
+            </div>
+          </div>
+        </footer>
+      </main>
+      <aside class="tools-panel">
+        <h3>工具</h3>
+        <ul id="tool-list" class="tool-list"></ul>
+      </aside>
+    </div>
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

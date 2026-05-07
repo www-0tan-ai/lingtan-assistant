@@ -1,0 +1,233 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: #f0f2f5;
+  color: #1a1a1a;
+}
+.app {
+  display: grid;
+  grid-template-columns: 220px 1fr 260px;
+  height: 100vh;
+}
+.sidebar {
+  background: #fff;
+  border-right: 1px solid #e5e7eb;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.brand-title {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.brand-sub {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+.sidebar-foot {
+  margin-top: auto;
+}
+.pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background: #eef2ff;
+  color: #4338ca;
+}
+.pill.err {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #fafafa;
+}
+.hero {
+  padding: 20px 24px 8px;
+  text-align: center;
+}
+.hero h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+.muted {
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+.pills {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.pills button {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.pills button:hover {
+  border-color: #d1d5db;
+}
+.transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 20px 100px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bubble {
+  max-width: min(720px, 92%);
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.bubble.user {
+  align-self: flex-end;
+  background: #111827;
+  color: #f9fafb;
+}
+.bubble.assistant {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+}
+.bubble.system {
+  align-self: center;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  font-size: 0.8rem;
+}
+.composer-wrap {
+  position: sticky;
+  bottom: 0;
+  padding: 12px 20px 16px;
+  background: linear-gradient(transparent, #fafafa 20%);
+}
+.composer {
+  max-width: 800px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 10px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+.composer textarea {
+  width: 100%;
+  border: none;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  gap: 8px;
+}
+.hint {
+  font-size: 0.65rem;
+}
+.btns {
+  display: flex;
+  gap: 8px;
+}
+.btn {
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.btn.primary {
+  background: #111827;
+  color: #fff;
+}
+.btn.primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn.secondary {
+  background: #fff;
+  border-color: #e5e7eb;
+}
+.tools-panel {
+  background: #fff;
+  border-left: 1px solid #e5e7eb;
+  padding: 12px;
+  overflow-y: auto;
+}
+.tools-panel h3 {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
+}
+.tool-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.78rem;
+}
+.tool-list li {
+  padding: 8px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: #f9fafb;
+  border: 1px solid #f3f4f6;
+  word-break: break-word;
+}
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal.hidden {
+  display: none;
+}
+.modal-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+}
+.modal-card pre {
+  background: #f3f4f6;
+  padding: 10px;
+  border-radius: 8px;
+  overflow: auto;
+  font-size: 0.75rem;
+}
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}

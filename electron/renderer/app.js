@@ -1,8 +1,9 @@
 /**
- * Minimal tui_gateway JSON-RPC over WebSocket (same wire as Ink / dashboard PTY).
+ * tui_gateway JSON-RPC over WebSocket — WorkBuddy-style side rails for Agent / Skills / Tools.
  */
 (() => {
   const REQUEST_TIMEOUT_MS = 120000;
+  const AGENT_POLL_MS = 4000;
   const params = new URLSearchParams(window.location.search);
   const token = params.get("token");
   if (!token) {
@@ -97,21 +98,218 @@
   const btnSend = document.getElementById("btn-send");
   const btnStop = document.getElementById("btn-stop");
   const btnNew = document.getElementById("btn-new");
+  const btnRefresh = document.getElementById("btn-refresh");
   const connPill = document.getElementById("conn-pill");
-  const toolList = document.getElementById("tool-list");
+  const agentCard = document.getElementById("agent-card");
+  const skillsList = document.getElementById("skills-list");
+  const skillsCount = document.getElementById("skills-count");
+  const toolsetsList = document.getElementById("toolsets-list");
+  const activityList = document.getElementById("activity-list");
+  const subagentList = document.getElementById("subagent-list");
+  const bgProcsList = document.getElementById("bg-procs-list");
   const modal = document.getElementById("modal");
   const quickPills = document.getElementById("quick-pills");
 
   let sessionId = null;
-  /** @type {boolean} */
   let turnBusy = false;
   /** @type {HTMLElement | null} */
   let assistantEl = null;
   let assistantText = "";
+  /** @type {ReturnType<typeof setInterval> | null} */
+  let pollTimer = null;
 
   function setConn(ok, text) {
     connPill.textContent = text;
     connPill.classList.toggle("err", !ok);
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function countToolsFromSessionInfo(tools) {
+    if (!tools || typeof tools !== "object") return 0;
+    return Object.values(tools).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0);
+  }
+
+  function countSkills(skills) {
+    if (!skills || typeof skills !== "object") return 0;
+    return Object.values(skills).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0);
+  }
+
+  function renderAgentCard(info) {
+    if (!info || typeof info !== "object") {
+      agentCard.className = "agent-card muted";
+      agentCard.textContent = "无 Agent 信息";
+      return;
+    }
+    agentCard.className = "agent-card";
+    const model = escapeHtml(String(info.model || "—"));
+    const cwd = escapeHtml(String(info.cwd || "—"));
+    const ver = escapeHtml(String(info.version || "—"));
+    const rel = info.release_date ? escapeHtml(String(info.release_date)) : "";
+    const tier = info.service_tier ? escapeHtml(String(info.service_tier)) : "—";
+    const reas = info.reasoning_effort ? escapeHtml(String(info.reasoning_effort)) : "—";
+    const nTools = countToolsFromSessionInfo(info.tools);
+    const mcp = Array.isArray(info.mcp_servers) ? info.mcp_servers : [];
+    const mcpOn = mcp.filter((s) => s && s.connected).length;
+    const mcpLine = mcp.length ? `${mcpOn} / ${mcp.length} 已连接` : "—";
+
+    const u = info.usage && typeof info.usage === "object" ? info.usage : {};
+    const tokIn = u.input != null ? Number(u.input) : null;
+    const tokOut = u.output != null ? Number(u.output) : null;
+    const tokTot = u.total != null ? Number(u.total) : null;
+    const tokStr =
+      tokTot != null && tokTot > 0
+        ? `${tokTot.toLocaleString()}（入 ${tokIn ?? "—"} / 出 ${tokOut ?? "—"}）`
+        : "—";
+    const cost =
+      u.cost_usd != null && !Number.isNaN(Number(u.cost_usd))
+        ? `≈ $${Number(u.cost_usd).toFixed(4)}${u.cost_status ? ` · ${escapeHtml(String(u.cost_status))}` : ""}`
+        : "—";
+    const ctx =
+      u.context_percent != null
+        ? `${u.context_percent}%${u.context_max ? ` / ${Number(u.context_max).toLocaleString()} ctx` : ""}`
+        : "—";
+
+    agentCard.innerHTML = `
+      <div class="model-line">${model}</div>
+      <div class="kv"><span class="k">工作目录</span><span class="v" title="${cwd}">${cwd}</span></div>
+      <div class="kv"><span class="k">版本</span><span class="v">${ver}${rel ? ` · ${rel}` : ""}</span></div>
+      <div class="kv"><span class="k">推理</span><span class="v">${reas}</span></div>
+      <div class="kv"><span class="k">服务层级</span><span class="v">${tier}</span></div>
+      <div class="kv"><span class="k">工具</span><span class="v">${nTools ? `${nTools} 个（按 toolset 分组）` : "—"}</span></div>
+      <div class="kv"><span class="k">MCP</span><span class="v">${escapeHtml(mcpLine)}</span></div>
+      <div class="kv"><span class="k">Token</span><span class="v">${escapeHtml(tokStr)}</span></div>
+      <div class="kv"><span class="k">费用</span><span class="v">${cost}</span></div>
+      <div class="kv"><span class="k">上下文</span><span class="v">${escapeHtml(ctx)}</span></div>
+    `;
+  }
+
+  function renderSkills(skills) {
+    const n = countSkills(skills);
+    skillsCount.textContent = n ? `${n} 项` : "";
+    if (!skills || typeof skills !== "object" || !n) {
+      skillsList.className = "skills-list muted";
+      skillsList.textContent = "暂无可用 Skills（或仍在加载）";
+      return;
+    }
+    skillsList.className = "skills-list";
+    const cats = Object.keys(skills).sort();
+    skillsList.innerHTML = cats
+      .map((cat) => {
+        const names = skills[cat];
+        if (!Array.isArray(names) || !names.length) return "";
+        const chips = names
+          .map((name) => `<span class="skill-chip" title="${escapeHtml(name)}">${escapeHtml(name)}</span>`)
+          .join("");
+        return `<div class="skill-cat"><div class="skill-cat-name">${escapeHtml(cat)}</div><div class="skill-chips">${chips}</div></div>`;
+      })
+      .join("");
+  }
+
+  function renderToolsets(toolsets) {
+    if (!Array.isArray(toolsets) || !toolsets.length) {
+      toolsetsList.className = "toolsets-list muted";
+      toolsetsList.textContent = "无法加载工具集（会话未就绪？）";
+      return;
+    }
+    toolsetsList.className = "toolsets-list";
+    toolsetsList.innerHTML = toolsets
+      .map((ts) => {
+        const name = escapeHtml(String(ts.name || ""));
+        const desc = escapeHtml(String(ts.description || "").slice(0, 200));
+        const en = ts.enabled !== false;
+        const tag = en ? `<span class="tag tag-on">开</span>` : `<span class="tag tag-off">关</span>`;
+        const cnt = ts.tool_count != null ? Number(ts.tool_count) : (ts.tools && ts.tools.length) || 0;
+        const tools = Array.isArray(ts.tools) ? ts.tools.map((t) => escapeHtml(String(t))).join("\n") : "";
+        return `<details class="toolset-item" ${en ? "open" : ""}>
+<summary><span>${name}</span><span class="toolset-meta">${tag}<span class="muted">${cnt}</span></span></summary>
+<div class="toolset-desc">${desc}</div>
+<pre class="toolset-tools">${tools || "—"}</pre>
+</details>`;
+      })
+      .join("");
+  }
+
+  function renderSubagents(data) {
+    const active = (data && data.active) || [];
+    if (!active.length) {
+      subagentList.className = "compact-list muted";
+      subagentList.textContent = "无运行中的子 Agent";
+      return;
+    }
+    subagentList.className = "compact-list";
+    subagentList.innerHTML = active
+      .map((a) => {
+        const id = escapeHtml(String(a.subagent_id || "?"));
+        const model = escapeHtml(String(a.model || "—"));
+        const goal = escapeHtml(String(a.goal || "").slice(0, 120));
+        const st = escapeHtml(String(a.status || "—"));
+        return `<div class="compact-row"><div class="r-title">${id} · ${model}</div><div class="r-sub">${st}${goal ? ` · ${goal}` : ""}</div></div>`;
+      })
+      .join("");
+  }
+
+  function renderBgProcs(data) {
+    const procs = (data && data.processes) || [];
+    if (!procs.length) {
+      bgProcsList.className = "compact-list muted";
+      bgProcsList.textContent = "无登记的后台进程";
+      return;
+    }
+    bgProcsList.className = "compact-list";
+    bgProcsList.innerHTML = procs
+      .map((p) => {
+        const sid = escapeHtml(String(p.session_id || "?"));
+        const cmd = escapeHtml(String(p.command || "").slice(0, 100));
+        const st = escapeHtml(String(p.status || "—"));
+        const up = p.uptime != null ? `${Math.round(Number(p.uptime))}s` : "";
+        return `<div class="compact-row"><div class="r-title">${sid}</div><div class="r-sub">${st}${up ? ` · ${up}` : ""} · ${cmd}</div></div>`;
+      })
+      .join("");
+  }
+
+  async function refreshSidebars() {
+    if (!sessionId) return;
+    const tasks = [
+      gw.request("tools.list", { session_id: sessionId }).then((r) => renderToolsets(r.toolsets)).catch(() => {
+        toolsetsList.className = "toolsets-list muted";
+        toolsetsList.textContent = "tools.list 失败";
+      }),
+      gw
+        .request("skills.manage", { action: "list" })
+        .then((r) => renderSkills(r.skills))
+        .catch(() => {}),
+      gw
+        .request("delegation.status", {})
+        .then((r) => renderSubagents(r))
+        .catch(() => {}),
+      gw
+        .request("agents.list", {})
+        .then((r) => renderBgProcs(r))
+        .catch(() => {}),
+    ];
+    await Promise.all(tasks);
+  }
+
+  function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+      if (!sessionId) return;
+      gw
+        .request("delegation.status", {})
+        .then((r) => renderSubagents(r))
+        .catch(() => {});
+      gw
+        .request("agents.list", {})
+        .then((r) => renderBgProcs(r))
+        .catch(() => {});
+    }, AGENT_POLL_MS);
   }
 
   function bubble(role, text) {
@@ -125,7 +323,21 @@
 
   function clearTranscript() {
     transcript.innerHTML = "";
-    toolList.innerHTML = "";
+    activityList.innerHTML = "";
+  }
+
+  function resetSidebarsLoading() {
+    agentCard.className = "agent-card muted";
+    agentCard.textContent = "正在初始化 Agent…";
+    skillsList.className = "skills-list muted";
+    skillsList.textContent = "加载中…";
+    skillsCount.textContent = "";
+    toolsetsList.className = "toolsets-list muted";
+    toolsetsList.textContent = "加载中…";
+    subagentList.className = "compact-list muted";
+    subagentList.textContent = "—";
+    bgProcsList.className = "compact-list muted";
+    bgProcsList.textContent = "—";
   }
 
   async function newSession() {
@@ -143,9 +355,16 @@
     btnStop.disabled = true;
     btnSend.disabled = false;
     clearTranscript();
+    resetSidebarsLoading();
     const res = await gw.request("session.create", { cols: 100 });
     sessionId = res.session_id;
+    if (res.info) {
+      renderAgentCard(res.info);
+      renderSkills(res.info.skills);
+    }
     bubble("system", `会话已创建 · ${sessionId}`);
+    setTimeout(() => refreshSidebars(), 400);
+    setTimeout(() => refreshSidebars(), 2500);
   }
 
   function ensureAssistantBubble() {
@@ -168,7 +387,15 @@
       case "gateway.ready":
         setConn(true, "已连接");
         break;
+      case "session.info": {
+        if (sessionId && sid && sid !== sessionId) break;
+        renderAgentCard(payload);
+        if (payload && payload.skills) renderSkills(payload.skills);
+        refreshSidebars().catch(() => {});
+        break;
+      }
       case "message.start":
+        activityList.innerHTML = "";
         resetAssistantBubble();
         ensureAssistantBubble();
         turnBusy = true;
@@ -194,6 +421,7 @@
         btnStop.disabled = true;
         btnSend.disabled = false;
         transcript.scrollTop = transcript.scrollHeight;
+        refreshSidebars().catch(() => {});
         break;
       }
       case "error": {
@@ -213,8 +441,8 @@
         const name = (payload && payload.name) || type;
         const preview = (payload && payload.preview) || "";
         li.textContent = preview ? `${name}: ${preview}` : name;
-        toolList.appendChild(li);
-        toolList.parentElement.scrollTop = toolList.parentElement.scrollHeight;
+        activityList.appendChild(li);
+        activityList.parentElement.scrollTop = activityList.parentElement.scrollHeight;
         break;
       }
       case "approval.request": {
@@ -255,14 +483,6 @@
     });
   }
 
-  function escapeHtml(s) {
-    return s
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
   async function sendMessage(text) {
     const t = text.trim();
     if (!t || !sessionId || turnBusy) return;
@@ -301,6 +521,7 @@
 
   btnSend.onclick = () => sendMessage(input.value);
   btnStop.onclick = () => stopTurn();
+  btnRefresh.onclick = () => refreshSidebars().catch((e) => bubble("system", String(e.message || e)));
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -319,6 +540,7 @@
       await gw.connect();
       setConn(true, "已连接");
       await newSession();
+      startPolling();
     } catch (e) {
       setConn(false, "未连接");
       bubble("system", String(e.message || e));

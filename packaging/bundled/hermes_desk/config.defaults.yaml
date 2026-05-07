@@ -1,0 +1,15 @@
+# HermesDesk 便携版 — 首次运行会复制为 hermes_data/config.yaml 并与内置默认值合并。
+# 密钥请写在同目录 .env（勿提交仓库），例如：
+#   OPENAI_API_KEY=sk-...
+# 也可在系统环境变量中设置，或使用 CLI：hermes setup
+
+model: ""
+# 示例（按你的账号修改）：
+# provider: openai
+# model: gpt-4o-mini
+
+agent:
+  max_turns: 60
+
+terminal:
+  cwd: "."

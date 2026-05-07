@@ -1,0 +1,29 @@
+# Windows portable EXE + bundled PyInstaller sidecar (run from repo root via scripts/build_windows_electron_desktop.ps1).
+appId: com.hermes.desk
+productName: HermesDesk
+copyright: Copyright Hermes contributors
+
+directories:
+  output: ../dist-electron-pack
+
+# Main process only in asar; static UI + Python sidecar live in extraResources (real paths).
+files:
+  - main.cjs
+  - package.json
+
+asar: true
+
+extraResources:
+  - from: renderer
+    to: renderer
+  - from: ../dist/hermes-electron-sidecar
+    to: sidecar
+
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  artifactName: HermesDesk-${version}-portable.exe
+
+compression: normal

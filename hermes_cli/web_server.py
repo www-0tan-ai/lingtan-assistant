@@ -74,6 +74,17 @@ app = FastAPI(title="Hermes Agent", version=__version__)
 _SESSION_TOKEN = secrets.token_urlsafe(32)
 _SESSION_HEADER_NAME = "X-Hermes-Session-Token"
 
+
+def get_dashboard_session_token() -> str:
+    """Return the ephemeral token gating /api/ws and /api/pty (loopback-only).
+
+    Used by the native desktop client (``hermes-gui``) to authenticate its
+    WebSocket after starting the dashboard app in-process or in a companion
+    thread. The token rotates whenever this Python process imports a fresh
+    ``web_server`` module — it is not stable across interpreter restarts.
+    """
+    return _SESSION_TOKEN
+
 # In-browser Chat tab (/chat, /api/pty, …).  Off unless ``hermes dashboard --tui``
 # or HERMES_DASHBOARD_TUI=1.  Set from :func:`start_server`.
 _DASHBOARD_EMBEDDED_CHAT_ENABLED = False

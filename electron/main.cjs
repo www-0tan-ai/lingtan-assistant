@@ -11,29 +11,61 @@ let mainWindow = null;
 let pyProc = null;
 
 function repoRoot() {
+  if (app.isPackaged) {
+    return process.resourcesPath;
+  }
   return path.join(__dirname, "..");
 }
 
+function rendererStaticDir() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "renderer");
+  }
+  return path.join(__dirname, "renderer");
+}
+
+function bundledSidecarPath() {
+  const dir = path.join(process.resourcesPath, "sidecar");
+  if (process.platform === "win32") {
+    return path.join(dir, "hermes-electron-sidecar.exe");
+  }
+  return path.join(dir, "hermes-electron-sidecar");
+}
+
 function pythonExe() {
-  const winVenv = path.join(repoRoot(), ".venv", "Scripts", "python.exe");
-  const posixVenv = path.join(repoRoot(), ".venv", "bin", "python");
+  if (app.isPackaged) {
+    const p = bundledSidecarPath();
+    if (fs.existsSync(p)) return p;
+  }
+  const root = repoRoot();
+  const winVenv = path.join(root, ".venv", "Scripts", "python.exe");
+  const posixVenv = path.join(root, ".venv", "bin", "python");
   if (process.platform === "win32" && fs.existsSync(winVenv)) return winVenv;
   if (fs.existsSync(posixVenv)) return posixVenv;
   return process.env.PYTHON || "python3";
 }
 
 function startSidecar() {
-  const staticDir = path.join(__dirname, "renderer");
+  const staticDir = rendererStaticDir();
   const py = pythonExe();
-  const args = ["-m", "hermes_electron"];
+  const base = path.basename(py).toLowerCase();
+  const useFrozenSidecar =
+    base === "hermes-electron-sidecar.exe" || base === "hermes-electron-sidecar";
+  const args = useFrozenSidecar ? [] : ["-m", "hermes_electron"];
   const env = {
     ...process.env,
     PYTHONUTF8: "1",
     HERMES_ELECTRON_RENDERER: staticDir,
   };
+  if (app.isPackaged) {
+    const deskData = path.join(path.dirname(process.execPath), "hermes_data");
+    env.HERMES_HOME = deskData;
+  }
+
+  const cwd = useFrozenSidecar ? path.dirname(py) : repoRoot();
 
   pyProc = spawn(py, args, {
-    cwd: repoRoot(),
+    cwd,
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -164,10 +196,10 @@ async function createWindow() {
   } catch (e) {
     console.error(e);
     const { dialog } = require("electron");
-    dialog.showErrorBox(
-      "Hermes Electron",
-      `无法启动 Python 侧车。\n\n${String(e.message || e)}\n\n请确认已在仓库根目录执行:\n  pip install -e ".[web]"\n并且使用仓库内的 .venv。`,
-    );
+    const hint = app.isPackaged
+      ? "便携版：请确认 resources\\sidecar 目录完整；配置与密钥写在 EXE 同目录的 hermes_data\\。"
+      : "开发模式：请在仓库根目录 pip install -e \".[electron-shell]\" 并使用 .venv。";
+    dialog.showErrorBox("HermesDesk", `无法启动 Python 侧车。\n\n${String(e.message || e)}\n\n${hint}`);
     app.quit();
     return;
   }
@@ -186,7 +218,7 @@ async function createWindow() {
     height: 800,
     minWidth: 800,
     minHeight: 560,
-    title: "Hermes",
+    title: "HermesDesk",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -200,7 +232,7 @@ async function createWindow() {
     console.error(e);
     const { dialog } = require("electron");
     dialog.showErrorBox(
-      "Hermes Electron",
+      "HermesDesk",
       `无法加载界面 (${url.slice(0, 48)}…)\n\n${String(e.message || e)}\n\n` +
         "若偶发 ERR_NETWORK_CHANGED，可重试；若每次失败，请检查侧车日志。",
     );

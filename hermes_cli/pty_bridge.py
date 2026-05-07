@@ -26,15 +26,21 @@ Design constraints:
 from __future__ import annotations
 
 import errno
-import fcntl
 import os
 import select
 import signal
 import struct
 import sys
-import termios
 import time
 from typing import Optional, Sequence
+
+# POSIX-only modules — native Windows CPython has no ``fcntl`` / ``termios``.
+if sys.platform.startswith("win"):
+    fcntl = None  # type: ignore[assignment]
+    termios = None  # type: ignore[assignment]
+else:
+    import fcntl  # type: ignore[no-redef]
+    import termios  # type: ignore[no-redef]
 
 try:
     import ptyprocess  # type: ignore
@@ -187,6 +193,8 @@ class PtyBridge:
         # struct winsize: rows, cols, xpixel, ypixel (all unsigned short)
         winsize = struct.pack("HHHH", max(1, rows), max(1, cols), 0, 0)
         try:
+            if fcntl is None or termios is None:
+                return
             fcntl.ioctl(self._fd, termios.TIOCSWINSZ, winsize)
         except OSError:
             pass
@@ -204,8 +212,9 @@ class PtyBridge:
         self._closed = True
 
         # SIGHUP is the conventional "your terminal went away" signal.
-        # We escalate if the child ignores it.
-        for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGKILL):
+        # We escalate if the child ignores it.  (Windows has no SIGHUP.)
+        _hup = getattr(signal, "SIGHUP", signal.SIGTERM)
+        for sig in (_hup, signal.SIGTERM, signal.SIGKILL):
             if not self._proc.isalive():
                 break
             try:

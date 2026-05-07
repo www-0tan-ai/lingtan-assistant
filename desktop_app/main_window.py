@@ -13,7 +13,7 @@ from functools import partial
 from typing import Any
 
 from PySide6.QtCore import QTimer, Qt, QUrl
-from PySide6.QtGui import QAction, QDesktopServices, QFont
+from PySide6.QtGui import QAction, QDesktopServices, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -182,7 +182,7 @@ class MainWindow(QMainWindow):
         if self._assistant_open:
             tail = f"\n── 助手 ──\n{self._assistant_buffer}"
         self._transcript.setPlainText(f"{self._committed}{tail}")
-        self._transcript.moveCursor(self._transcript.textCursor().End)
+        self._transcript.moveCursor(QTextCursor.MoveOperation.End)
 
     def _bootstrap_session(self) -> None:
         try:

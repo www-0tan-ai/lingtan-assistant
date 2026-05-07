@@ -14,6 +14,9 @@ import json
 import os
 import secrets
 import socket
+import sys
+import threading
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
@@ -71,11 +74,44 @@ def main() -> None:
     app = _build_app(static_dir, token)
 
     line = json.dumps({"port": port, "token": token}, separators=(",", ":"))
+
+    def _serve() -> None:
+        import uvicorn
+
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            access_log=False,
+        )
+
+    # READY must be emitted only after the port accepts connections; otherwise
+    # Electron often hits ERR_NETWORK_CHANGED / connection refused on Windows.
+    th = threading.Thread(target=_serve, name="hermes-electron-uvicorn", daemon=False)
+    th.start()
+
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.25):
+                pass
+            break
+        except OSError:
+            time.sleep(0.05)
+        if not th.is_alive():
+            print(
+                "HERMES_ELECTRON_ERR uvicorn thread exited before listen",
+                file=sys.stderr,
+                flush=True,
+            )
+            raise SystemExit(1)
+    else:
+        print("HERMES_ELECTRON_ERR timeout waiting for port to listen", file=sys.stderr, flush=True)
+        raise SystemExit(1)
+
     print(f"HERMES_ELECTRON_READY{line}", flush=True)
-
-    import uvicorn
-
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning", access_log=False)
+    th.join()
 
 
 if __name__ == "__main__":

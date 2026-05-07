@@ -3,6 +3,7 @@
  */
 const { app, BrowserWindow } = require("electron");
 const { spawn } = require("child_process");
+const http = require("http");
 const path = require("path");
 const fs = require("fs");
 
@@ -78,6 +79,70 @@ function startSidecar() {
   });
 }
 
+/**
+ * @param {import("electron").BrowserWindow} win
+ * @param {string} url
+ */
+async function loadURLWithRetry(win, url) {
+  const attempts = 8;
+  const delayMs = 300;
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await win.loadURL(url);
+      return;
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[hermes-electron] loadURL attempt ${i + 1}/${attempts}:`, e?.message || e);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Extra guard after READY: some Windows builds still throw ERR_NETWORK_CHANGED (-21)
+ * on the first Chromium navigation to loopback.
+ */
+function probeHttpOnce(urlStr) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlStr);
+    const req = http.request(
+      {
+        hostname: u.hostname,
+        port: u.port,
+        path: `${u.pathname}${u.search}`,
+        method: "GET",
+        timeout: 4000,
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("probe timeout"));
+    });
+    req.end();
+  });
+}
+
+async function probeHttpRetry(urlStr, attempts = 10, delayMs = 200) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await probeHttpOnce(urlStr);
+      return;
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 function killSidecar() {
   if (!pyProc) return;
   try {
@@ -110,6 +175,12 @@ async function createWindow() {
   const { port, token } = meta;
   const url = `http://127.0.0.1:${port}/?token=${encodeURIComponent(token)}`;
 
+  try {
+    await probeHttpRetry(url);
+  } catch (e) {
+    console.error("[hermes-electron] HTTP probe failed:", e);
+  }
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -123,7 +194,23 @@ async function createWindow() {
     },
   });
 
-  await mainWindow.loadURL(url);
+  try {
+    await loadURLWithRetry(mainWindow, url);
+  } catch (e) {
+    console.error(e);
+    const { dialog } = require("electron");
+    dialog.showErrorBox(
+      "Hermes Electron",
+      `无法加载界面 (${url.slice(0, 48)}…)\n\n${String(e.message || e)}\n\n` +
+        "若偶发 ERR_NETWORK_CHANGED，可重试；若每次失败，请检查侧车日志。",
+    );
+    mainWindow?.destroy();
+    mainWindow = null;
+    killSidecar();
+    app.quit();
+    return;
+  }
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });

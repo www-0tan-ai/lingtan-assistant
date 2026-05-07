@@ -3,140 +3,413 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hermes</title>
+    <meta name="app-version" content="0.1.0" />
+    <title>HermesDesk</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="app">
-      <aside class="nav-rail" aria-label="主导航">
-        <div class="nav-brand">
-          <div class="nav-brand-name">Hermes</div>
-          <div class="nav-brand-ver muted">本地</div>
+    <div class="wb-app">
+      <!-- 左侧栏：对齐 WorkBuddy 信息架构 -->
+      <aside class="wb-sidebar" aria-label="主导航">
+        <header class="wb-side-head">
+          <div class="wb-logo" aria-hidden="true"></div>
+          <div class="wb-brand-block">
+            <div class="wb-brand-row">
+              <span class="wb-brand-name">HermesDesk</span>
+              <span class="wb-brand-ver">v0.1.0</span>
+            </div>
+          </div>
+          <span id="conn-status" class="wb-conn-dot" title="连接中"></span>
+        </header>
+
+        <div class="wb-search-row">
+          <input
+            type="search"
+            id="sidebar-search"
+            class="wb-search-input"
+            placeholder="搜索任务"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button type="button" class="wb-icon-sq" id="btn-refresh" title="刷新" aria-label="刷新列表">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
         </div>
 
-        <nav class="nav-menu" id="nav-menu">
-          <button type="button" class="nav-item active" data-view="chat">对话</button>
-          <button type="button" class="nav-item" data-view="skills">技能</button>
-          <button type="button" class="nav-item" data-view="tools">工具</button>
+        <button type="button" class="wb-btn-primary" id="btn-new">+ 新建任务</button>
+
+        <nav class="wb-nav" id="nav-menu" aria-label="功能">
+          <button type="button" class="wb-nav-item active" data-view="chat">
+            <span class="wb-nav-ico" aria-hidden="true">⚡</span><span>Claw</span>
+          </button>
+          <button type="button" class="wb-nav-item" data-view="experts">
+            <span class="wb-nav-ico" aria-hidden="true">🎓</span><span>专家</span>
+          </button>
+          <button type="button" class="wb-nav-item" data-view="skills">
+            <span class="wb-nav-ico" aria-hidden="true">✨</span><span>技能</span>
+          </button>
+          <button type="button" class="wb-nav-item" data-view="explore">
+            <span class="wb-nav-ico" aria-hidden="true">🧭</span><span>探索</span>
+          </button>
+          <button type="button" class="wb-nav-item" data-view="connectors">
+            <span class="wb-nav-ico" aria-hidden="true">🔌</span><span>连接器</span>
+          </button>
+          <div class="wb-nav-group">
+            <button type="button" class="wb-nav-item wb-nav-parent" id="nav-library-toggle" aria-expanded="false">
+              <span class="wb-nav-ico" aria-hidden="true">📚</span><span>资料库</span>
+              <span class="wb-nav-chev">▾</span>
+            </button>
+            <div class="wb-nav-sub" id="nav-library-sub" hidden>
+              <button type="button" class="wb-nav-item wb-nav-subitem" data-view="library">
+                <span class="wb-nav-ico sm">📄</span>腾讯文档
+              </button>
+            </div>
+          </div>
+          <button type="button" class="wb-nav-item" data-view="automation">
+            <span class="wb-nav-ico" aria-hidden="true">⏱</span><span>自动化</span>
+          </button>
         </nav>
 
-        <div class="nav-history">
-          <div class="nav-history-label">历史记录</div>
-          <div id="session-history-list" class="session-history-list" role="list"></div>
+        <div class="wb-side-scroll">
+          <div class="wb-side-sec-label">任务</div>
+          <div id="task-strip" class="wb-task-strip muted">暂无任务摘要</div>
+
+          <div class="wb-side-sec-label">工作空间</div>
+          <div class="wb-folder-pill" id="workspace-folder" title="数据目录">
+            <span class="wb-folder-ico">📁</span>
+            <span id="workspace-folder-name">hermes_data</span>
+          </div>
+          <div id="session-history-list" class="wb-history-list" role="list"></div>
         </div>
 
-        <button type="button" class="btn btn-ghost btn-block nav-refresh" id="btn-refresh">刷新数据</button>
-        <div class="nav-foot">
-          <span id="conn-pill" class="pill">连接中…</span>
+        <div class="wb-userbar">
+          <div class="wb-user-avatar" aria-hidden="true">W</div>
+          <span class="wb-user-name">用户</span>
+          <span class="wb-user-chev" aria-hidden="true">›</span>
         </div>
+
+        <span id="conn-pill" class="wb-conn-pill hidden" aria-live="polite"></span>
       </aside>
 
-      <div class="workspace">
-        <!-- 对话 -->
-        <section id="view-chat" class="view view-active" aria-label="对话">
-          <header class="main-topbar">
-            <div class="main-topbar-text">
-              <h1 class="main-title">对话</h1>
-              <p class="main-subtitle muted">与 Ink 共用 tui_gateway · 仅本机回环</p>
+      <main class="wb-main">
+        <!-- Claw / 对话主区 -->
+        <section id="view-chat" class="wb-view wb-view-active" aria-label="任务">
+          <header class="wb-chat-head">
+            <div class="wb-chat-head-left">
+              <button type="button" class="wb-icon-sq ghost" aria-label="文档">📄</button>
+              <button type="button" class="wb-icon-sq ghost" id="btn-chat-plus" title="新建任务" aria-label="新建">+</button>
             </div>
-            <div class="main-topbar-actions chat-top-actions">
-              <button type="button" class="btn btn-cta btn-compact" id="btn-new">+ 新建对话</button>
-              <div class="pills pills-inline" id="quick-pills"></div>
+            <h1 class="wb-chat-title" id="chat-task-title">新任务</h1>
+            <div class="wb-chat-head-right">
+              <button type="button" class="wb-icon-sq ghost" aria-label="搜索">🔍</button>
+              <button type="button" class="wb-icon-sq ghost" aria-label="菜单">☰</button>
+              <button type="button" class="wb-icon-sq ghost" aria-label="布局">⛶</button>
             </div>
           </header>
-          <section class="transcript" id="transcript"></section>
-          <footer class="composer-wrap">
-            <div class="composer">
-              <textarea
-                id="input"
-                rows="3"
-                placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
-              ></textarea>
-              <div class="composer-actions">
-                <span class="hint muted">内容由 AI 生成，请核实重要信息。</span>
-                <div class="btns">
-                  <button type="button" class="btn secondary" id="btn-stop" disabled>
-                    停止
-                  </button>
-                  <button type="button" class="btn primary" id="btn-send">发送</button>
+
+          <div class="wb-chat-body">
+            <div class="wb-transcript-wrap">
+              <div id="quick-pills" class="wb-quick-pills" aria-label="快捷输入"></div>
+              <div id="transcript" class="wb-transcript"></div>
+            </div>
+
+            <div class="wb-composer-outer">
+              <div class="wb-composer-bar">
+                <span class="wb-composer-dd">任务列表 <span class="wb-dd-tag">1/1</span></span>
+                <span class="wb-composer-status muted" id="task-status-line">就绪</span>
+              </div>
+              <div class="wb-composer-card">
+                <div class="wb-composer-input-row">
+                  <button type="button" class="wb-composer-ico" aria-label="@">@</button>
+                  <button type="button" class="wb-composer-ico" aria-label="附件">📎</button>
+                  <textarea
+                    id="input"
+                    class="wb-composer-textarea"
+                    rows="2"
+                    placeholder="输入消息…"
+                  ></textarea>
+                  <div class="wb-composer-mascot" title="HermesDesk" aria-hidden="true">🤖</div>
+                </div>
+                <div class="wb-composer-toolbar">
+                  <div class="wb-toolbar-left">
+                    <button type="button" class="wb-pill-btn">Craft <span class="wb-caret">▾</span></button>
+                    <button type="button" class="wb-pill-btn"><span class="wb-spark">✦</span> Auto</button>
+                    <button type="button" class="wb-pill-btn" data-view-switch="skills">技能</button>
+                    <button type="button" class="wb-pill-btn ico" aria-label="连接器" data-view-switch="connectors">🔌</button>
+                  </div>
+                  <div class="wb-toolbar-right">
+                    <button type="button" class="wb-icon-sq" aria-label="语音">🎤</button>
+                    <button type="button" class="wb-send-fab" id="btn-send" title="发送">➤</button>
+                  </div>
+                </div>
+                <div class="wb-composer-foot">
+                  <span class="wb-disclaimer">内容由 AI 生成，请核实重要信息。</span>
+                  <div class="wb-stop-wrap">
+                    <button type="button" class="wb-btn-stop" id="btn-stop" disabled>停止</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </footer>
-        </section>
-
-        <!-- 技能（WorkBuddy 式主内容区） -->
-        <section id="view-skills" class="view" aria-label="技能">
-          <div class="page-scroll">
-            <div class="page-inner">
-              <header class="page-header">
-                <div>
-                  <h1 class="page-title">技能</h1>
-                  <p class="page-lead muted">赋予 Hermes 可组合的能力 · 点击卡片插入 /技能名 到对话</p>
-                </div>
-                <div class="page-header-tools">
-                  <input
-                    type="search"
-                    id="skills-search"
-                    class="page-search"
-                    placeholder="搜索已安装技能…"
-                    autocomplete="off"
-                    spellcheck="false"
-                  />
-                  <span id="skills-count" class="badge badge-lg"></span>
-                </div>
-              </header>
-
-              <div id="skills-filters" class="filter-pills filter-pills-page" aria-label="技能分类"></div>
-              <div id="skills-list" class="skills-list skill-grid skill-grid-page muted">—</div>
             </div>
           </div>
         </section>
 
-        <!-- 工具与运行环境 -->
-        <section id="view-tools" class="view" aria-label="工具">
-          <div class="page-scroll">
-            <div class="page-inner page-inner-tools">
-              <header class="page-header page-header-tight">
+        <!-- 专家中心 -->
+        <section id="view-experts" class="wb-view" aria-label="专家">
+          <div class="wb-page wb-page-white">
+            <header class="wb-page-head">
+              <div>
+                <h1 class="wb-page-title">专家中心</h1>
+                <div class="wb-tabs-row">
+                  <button type="button" class="wb-tab active">我的专家</button>
+                  <span class="wb-badge-soon">敬请期待</span>
+                </div>
+              </div>
+              <input type="search" class="wb-page-search" placeholder="搜索专家职称或描述" />
+            </header>
+
+            <section class="wb-block">
+              <div class="wb-block-head">
+                <h2 class="wb-block-title">专家团 <span class="wb-tag-beta">Beta</span></h2>
+              </div>
+              <div class="wb-grid-4" id="expert-groups-grid">
+                <!-- 静态展示：对齐参考图版式 -->
+                <article class="wb-card-team">
+                  <div class="wb-card-team-art">💻</div>
+                  <h3 class="wb-card-team-name">软件开发团队</h3>
+                  <div class="wb-card-tags"><span>软件公司</span><span>组织管理</span></div>
+                  <p class="wb-card-desc">全栈交付、代码审查与工程化落地，覆盖前后端与 DevOps。</p>
+                  <div class="wb-card-team-foot"><span class="wb-avatars">●●●</span><span class="wb-use-count">6.66万次使用</span></div>
+                </article>
+                <article class="wb-card-team">
+                  <div class="wb-card-team-art">📊</div>
+                  <h3 class="wb-card-team-name">数据与增长组</h3>
+                  <div class="wb-card-tags"><span>数据</span><span>增长</span></div>
+                  <p class="wb-card-desc">指标体系、实验设计与分析叙事，服务产品与运营决策。</p>
+                  <div class="wb-card-team-foot"><span class="wb-avatars">●●</span><span class="wb-use-count">2.10万次使用</span></div>
+                </article>
+                <article class="wb-card-team">
+                  <div class="wb-card-team-art">🎨</div>
+                  <h3 class="wb-card-team-name">产品设计工作室</h3>
+                  <div class="wb-card-tags"><span>体验</span><span>品牌</span></div>
+                  <p class="wb-card-desc">用户研究、信息架构与视觉系统，从原型到设计规范。</p>
+                  <div class="wb-card-team-foot"><span class="wb-avatars">●●●●</span><span class="wb-use-count">4.02万次使用</span></div>
+                </article>
+                <article class="wb-card-team">
+                  <div class="wb-card-team-art">📈</div>
+                  <h3 class="wb-card-team-name">金融研究顾问团</h3>
+                  <div class="wb-card-tags"><span>投研</span><span>风控</span></div>
+                  <p class="wb-card-desc">财报拆解、行业对比与情景分析，输出可复核的研究笔记。</p>
+                  <div class="wb-card-team-foot"><span class="wb-avatars">●●</span><span class="wb-use-count">1.88万次使用</span></div>
+                </article>
+              </div>
+              <button type="button" class="wb-show-more">显示更多 <span>▾</span></button>
+            </section>
+
+            <section class="wb-block">
+              <div class="wb-cat-toolbar">
+                <div class="wb-cat-pills" id="expert-cat-pills">
+                  <button type="button" class="wb-cat-pill active">全部</button>
+                  <button type="button" class="wb-cat-pill">产品设计</button>
+                  <button type="button" class="wb-cat-pill">技术工程</button>
+                  <button type="button" class="wb-cat-pill">金融投资</button>
+                  <button type="button" class="wb-cat-pill">游戏空间</button>
+                  <button type="button" class="wb-cat-pill">数据智能</button>
+                  <button type="button" class="wb-cat-pill">营销增长</button>
+                  <button type="button" class="wb-cat-pill">内容创作</button>
+                </div>
+                <div class="wb-sort">
+                  <button type="button" class="wb-sort-btn active">最热</button>
+                  <button type="button" class="wb-sort-btn">最新</button>
+                </div>
+              </div>
+              <div class="wb-grid-experts">
+                <article class="wb-card-expert">
+                  <div class="wb-ex-avatar">👤</div>
+                  <div class="wb-ex-body">
+                    <div class="wb-ex-title">高级开发工程师</div>
+                    <div class="wb-card-tags"><span>高级开发</span><span>架构设计</span></div>
+                    <p class="wb-card-desc">擅长分布式系统与性能调优，可带队做技术方案评审。</p>
+                    <div class="wb-ex-foot"><span>吴八哥</span><span class="wb-use-count">1.2万次</span></div>
+                  </div>
+                </article>
+                <article class="wb-card-expert">
+                  <div class="wb-ex-avatar">👤</div>
+                  <div class="wb-ex-body">
+                    <div class="wb-ex-title">产品主理人</div>
+                    <div class="wb-card-tags"><span>需求</span><span>Roadmap</span></div>
+                    <p class="wb-card-desc">从 0 到 1 规划 MVP，擅长用户故事与优先级博弈。</p>
+                    <div class="wb-ex-foot"><span>李产品</span><span class="wb-use-count">9.8千次</span></div>
+                  </div>
+                </article>
+                <article class="wb-card-expert">
+                  <div class="wb-ex-avatar">👤</div>
+                  <div class="wb-ex-body">
+                    <div class="wb-ex-title">数据科学家</div>
+                    <div class="wb-card-tags"><span>建模</span><span>可视化</span></div>
+                    <p class="wb-card-desc">统计学习、因果与 A/B 实验设计，交付可解释结论。</p>
+                    <div class="wb-ex-foot"><span>周数据</span><span class="wb-use-count">7.5千次</span></div>
+                  </div>
+                </article>
+                <article class="wb-card-expert">
+                  <div class="wb-ex-avatar">👤</div>
+                  <div class="wb-ex-body">
+                    <div class="wb-ex-title">内容策略顾问</div>
+                    <div class="wb-card-tags"><span>叙事</span><span>SEO</span></div>
+                    <p class="wb-card-desc">多平台内容矩阵与传播节奏，支持品牌与增长目标。</p>
+                    <div class="wb-ex-foot"><span>赵内容</span><span class="wb-use-count">5.1千次</span></div>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <!-- 技能 -->
+        <section id="view-skills" class="wb-view" aria-label="技能">
+          <div class="wb-page wb-page-white">
+            <header class="wb-page-head">
+              <div>
+                <h1 class="wb-page-title">技能</h1>
+                <p class="wb-page-sub">赋予 HermesDesk 更强大的能力</p>
+              </div>
+              <div class="wb-page-head-tools">
+                <input type="search" id="skills-search" class="wb-page-search" placeholder="搜索技能" autocomplete="off" spellcheck="false" />
+                <button type="button" class="wb-btn-outline">+ 添加技能</button>
+              </div>
+            </header>
+
+            <section class="wb-block">
+              <div class="wb-installed-head">
+                <h2 class="wb-block-title">已安装</h2>
+                <span id="skills-count" class="wb-count-badge">0</span>
+              </div>
+              <div id="skills-list" class="wb-skills-installed muted">加载中…</div>
+              <button type="button" class="wb-show-more">显示更多 <span>▾</span></button>
+            </section>
+
+            <div class="wb-market-tabs">
+              <button type="button" class="wb-mtab active">推荐</button>
+              <button type="button" class="wb-mtab">SkillHub</button>
+              <button type="button" class="wb-mtab">套件</button>
+            </div>
+            <div id="skills-filters" class="wb-cat-pills wb-cat-pills-wrap" aria-label="技能分类"></div>
+            <div id="skills-market-list" class="wb-market-list muted">
+              <div class="wb-market-row">
+                <span class="wb-m-ico">🐼</span>
                 <div>
-                  <h1 class="page-title">工具与环境</h1>
-                  <p class="page-lead muted">Agent 状态、工具集、本回合调用与子任务</p>
-                </div>
-              </header>
-
-              <h2 class="block-title">Agent</h2>
-              <div id="agent-card" class="agent-card agent-card-wide muted">等待会话…</div>
-
-              <div class="tools-block">
-                <h2 class="block-title">工具集</h2>
-                <p class="block-sub muted">当前会话启用的工具分组与工具名</p>
-                <div id="toolsets-list" class="toolsets-list toolsets-list-page muted">—</div>
-              </div>
-
-              <div class="tools-columns">
-                <div class="tools-col">
-                  <h2 class="block-title">本回合工具</h2>
-                  <p class="block-sub muted">本轮模型调用的工具流水</p>
-                  <ul id="activity-list" class="activity-list"></ul>
-                </div>
-                <div class="tools-col">
-                  <h2 class="block-title">子 Agent</h2>
-                  <p class="block-sub muted">委派与子任务</p>
-                  <div id="subagent-list" class="compact-list muted">—</div>
+                  <div class="wb-m-title">示例：云端技能市场</div>
+                  <div class="wb-m-desc">下方「已安装」列表来自本机 Hermes skills；此处为占位版式，与参考应用市场区一致。</div>
                 </div>
               </div>
-
-              <div class="tools-block">
-                <h2 class="block-title">后台进程</h2>
-                <p class="block-sub muted">终端 / 长任务登记</p>
-                <div id="bg-procs-list" class="compact-list muted">—</div>
+              <div class="wb-market-row">
+                <span class="wb-m-ico">☁️</span>
+                <div>
+                  <div class="wb-m-title">NeoData 检索服务（示意）</div>
+                  <div class="wb-m-desc">连接外部检索与知识库的可视化占位，实际能力取决于后端配置。</div>
+                </div>
               </div>
             </div>
           </div>
         </section>
-      </div>
+
+        <!-- 探索 -->
+        <section id="view-explore" class="wb-view" aria-label="探索">
+          <div class="wb-page wb-page-white wb-center">
+            <div class="wb-soon">
+              <div class="wb-soon-ico">🧭</div>
+              <h1 class="wb-page-title">探索</h1>
+              <p class="muted">敬请期待 · 后续可接入发现流与模板广场</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 连接器 + 技术详情 -->
+        <section id="view-connectors" class="wb-view" aria-label="连接器">
+          <div class="wb-page wb-page-white">
+            <header class="wb-page-head">
+              <div>
+                <h1 class="wb-page-title">连接器管理</h1>
+                <p class="wb-page-sub">连接外部服务，扩展 AI 能力</p>
+              </div>
+              <button type="button" class="wb-btn-outline">⚙ 自定义连接器</button>
+            </header>
+            <div class="wb-conn-grid">
+              <article class="wb-conn-card"><span class="wb-conn-ico">✉️</span><div><div class="wb-conn-name">QQ邮箱</div><p class="wb-conn-desc">收发邮件、摘要与待办抽取（示意）</p></div><button type="button" class="wb-conn-add">+</button></article>
+              <article class="wb-conn-card"><span class="wb-conn-ico">🧩</span><div><div class="wb-conn-name">腾讯乐享</div><p class="wb-conn-desc">知识库检索与问答（示意）</p></div><button type="button" class="wb-conn-add">+</button></article>
+              <article class="wb-conn-card"><span class="wb-conn-ico">📘</span><div><div class="wb-conn-name">腾讯文档</div><p class="wb-conn-desc">表格与文档读写协作（示意）</p></div><button type="button" class="wb-conn-add">+</button></article>
+              <article class="wb-conn-card"><span class="wb-conn-ico">🔷</span><div><div class="wb-conn-name">TAPD</div><p class="wb-conn-desc">需求与缺陷联动（示意）</p></div><button type="button" class="wb-conn-add">+</button></article>
+              <article class="wb-conn-card wb-conn-focus"><span class="wb-conn-ico">☁️</span><div><div class="wb-conn-name">微云</div><p class="wb-conn-desc">文件同步与分享（示意）</p></div><button type="button" class="wb-conn-add">+</button></article>
+              <article class="wb-conn-card"><span class="wb-conn-ico">✅</span><div><div class="wb-conn-name">腾讯问卷</div><p class="wb-conn-desc">问卷生成与结果分析（示意）</p></div><button type="button" class="wb-conn-add">+</button></article>
+              <article class="wb-conn-card"><span class="wb-conn-ico">🐙</span><div><div class="wb-conn-name">GitHub</div><p class="wb-conn-desc">Issue/PR 与代码浏览（示意）</p></div><button type="button" class="wb-conn-add">+</button></article>
+              <article class="wb-conn-card"><span class="wb-conn-ico">📋</span><div><div class="wb-conn-name">福帮手</div><p class="wb-conn-desc">办公流程自动化（示意）</p></div><button type="button" class="wb-conn-add">+</button></article>
+            </div>
+
+            <div class="wb-tech-block">
+              <h2 class="wb-block-title">运行时 · Agent 与工具集</h2>
+              <p class="wb-page-sub">以下为当前会话真实数据（非占位）</p>
+              <div id="agent-card" class="wb-agent-card muted">等待会话…</div>
+              <h3 class="wb-subh">工具集</h3>
+              <div id="toolsets-list" class="wb-toolsets muted">—</div>
+              <div class="wb-two-col">
+                <div>
+                  <h3 class="wb-subh">本回合工具</h3>
+                  <ul id="activity-list" class="wb-activity"></ul>
+                </div>
+                <div>
+                  <h3 class="wb-subh">子 Agent</h3>
+                  <div id="subagent-list" class="wb-compact muted">—</div>
+                  <h3 class="wb-subh">后台进程</h3>
+                  <div id="bg-procs-list" class="wb-compact muted">—</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 资料库 -->
+        <section id="view-library" class="wb-view" aria-label="资料库">
+          <div class="wb-page wb-page-white wb-center">
+            <div class="wb-soon">
+              <div class="wb-soon-ico">📚</div>
+              <h1 class="wb-page-title">腾讯文档</h1>
+              <p class="muted">资料库入口为展示版式；与云端文档打通需后续接入连接器。</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 自动化 -->
+        <section id="view-automation" class="wb-view" aria-label="自动化">
+          <div class="wb-page wb-page-white">
+            <header class="wb-page-head">
+              <div>
+                <h1 class="wb-page-title">自动化</h1>
+                <p class="wb-page-sub">管理自动化任务并查看近期运行记录。</p>
+              </div>
+              <button type="button" class="wb-btn-outline">+ 添加</button>
+            </header>
+            <h2 class="wb-block-title">从模版入手</h2>
+            <div class="wb-auto-grid">
+              <article class="wb-auto-card"><span class="wb-auto-ico">📰</span><strong>每日 AI 新闻推送</strong><p>定时抓取要点并推送摘要</p></article>
+              <article class="wb-auto-card"><span class="wb-auto-ico">文A</span><strong>每日 5 个英语单词</strong><p>卡片记忆与例句</p></article>
+              <article class="wb-auto-card"><span class="wb-auto-ico">🌙</span><strong>每日儿童睡前故事</strong><p>温和叙事与互动提问</p></article>
+              <article class="wb-auto-card"><span class="wb-auto-ico">📑</span><strong>每周工作周报</strong><p>汇总本周产出与风险</p></article>
+              <article class="wb-auto-card"><span class="wb-auto-ico">🎬</span><strong>经典电影推荐</strong><p>按偏好与片单更新</p></article>
+              <article class="wb-auto-card"><span class="wb-auto-ico">📅</span><strong>历史上的今天</strong><p>一日一史卡片</p></article>
+              <article class="wb-auto-card"><span class="wb-auto-ico">💡</span><strong>每日一个为什么</strong><p>科普短问答</p></article>
+              <article class="wb-auto-card"><span class="wb-auto-ico">⏰</span><strong>父母联系提醒</strong><p>周期性关怀提醒</p></article>
+              <article class="wb-auto-card"><span class="wb-auto-ico">🏥</span><strong>体检预约提醒</strong><p>日程与材料清单</p></article>
+              <article class="wb-auto-card"><span class="wb-auto-ico">💬</span><strong>面试准备提醒</strong><p>题库与模拟问答</p></article>
+              <article class="wb-auto-card"><span class="wb-auto-ico">✔️</span><strong>会议前准备</strong><p>议程与材料检查</p></article>
+              <article class="wb-auto-card"><span class="wb-auto-ico">🖼</span><strong>可爱萌宠手机壁纸</strong><p>每日一图推送</p></article>
+            </div>
+          </div>
+        </section>
+      </main>
     </div>
-    <div id="modal" class="modal hidden" role="dialog" aria-modal="true"></div>
+
+    <div id="modal" class="wb-modal hidden" role="dialog" aria-modal="true"></div>
     <script src="/app.js"></script>
   </body>
 </html>

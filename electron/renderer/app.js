@@ -1,9 +1,19 @@
 /**
- * tui_gateway JSON-RPC over WebSocket — WorkBuddy-style nav + full-width workspace views.
+ * tui_gateway JSON-RPC over WebSocket — HermesDesk UI（WorkBuddy 参考布局）
  */
 (() => {
   const REQUEST_TIMEOUT_MS = 120000;
   const AGENT_POLL_MS = 4000;
+  const VIEWS = [
+    "chat",
+    "experts",
+    "skills",
+    "explore",
+    "connectors",
+    "library",
+    "automation",
+  ];
+
   const params = new URLSearchParams(window.location.search);
   const token = params.get("token");
   if (!token) {
@@ -99,7 +109,11 @@
   const btnStop = document.getElementById("btn-stop");
   const btnNew = document.getElementById("btn-new");
   const btnRefresh = document.getElementById("btn-refresh");
+  const btnChatPlus = document.getElementById("btn-chat-plus");
   const connPill = document.getElementById("conn-pill");
+  const connStatus = document.getElementById("conn-status");
+  const chatTaskTitle = document.getElementById("chat-task-title");
+  const taskStatusLine = document.getElementById("task-status-line");
   const agentCard = document.getElementById("agent-card");
   const skillsList = document.getElementById("skills-list");
   const skillsCount = document.getElementById("skills-count");
@@ -111,14 +125,16 @@
   const bgProcsList = document.getElementById("bg-procs-list");
   const modal = document.getElementById("modal");
   const quickPills = document.getElementById("quick-pills");
-  const viewChat = document.getElementById("view-chat");
-  const viewSkills = document.getElementById("view-skills");
-  const viewTools = document.getElementById("view-tools");
   const navMenu = document.getElementById("nav-menu");
   const sessionHistoryList = document.getElementById("session-history-list");
+  const sidebarSearch = document.getElementById("sidebar-search");
+  const taskStrip = document.getElementById("task-strip");
+  const navLibraryToggle = document.getElementById("nav-library-toggle");
+  const navLibrarySub = document.getElementById("nav-library-sub");
+  const expertCatPills = document.getElementById("expert-cat-pills");
 
   let sessionId = null;
-  /** @type {string | null} DB session id when last opened via resume; null after brand-new session.create */
+  /** @type {string | null} */
   let activeDbSessionId = null;
   let turnBusy = false;
   /** @type {HTMLElement | null} */
@@ -128,22 +144,42 @@
   let pollTimer = null;
   /** @type {Record<string, string[]> | null} */
   let skillsByCategory = null;
-  /** @type {string} */
   let skillsFilterCat = "__all__";
+  /** @type {any[]} */
+  let lastSessions = [];
 
   function setView(name) {
-    const v = name === "skills" || name === "tools" ? name : "chat";
-    viewChat.classList.toggle("view-active", v === "chat");
-    viewSkills.classList.toggle("view-active", v === "skills");
-    viewTools.classList.toggle("view-active", v === "tools");
-    navMenu.querySelectorAll(".nav-item").forEach((el) => {
-      el.classList.toggle("active", el.getAttribute("data-view") === v);
+    const v = VIEWS.includes(name) ? name : "chat";
+    VIEWS.forEach((id) => {
+      const el = document.getElementById(`view-${id}`);
+      if (el) el.classList.toggle("wb-view-active", id === v);
+    });
+    navMenu.querySelectorAll(".wb-nav-item[data-view]").forEach((el) => {
+      const dv = el.getAttribute("data-view");
+      el.classList.toggle("active", dv === v);
     });
   }
 
   function setConn(ok, text) {
-    connPill.textContent = text;
-    connPill.classList.toggle("err", !ok);
+    if (connPill) {
+      connPill.textContent = text;
+      connPill.classList.toggle("err", !ok);
+    }
+    if (connStatus) {
+      connStatus.classList.toggle("ok", ok);
+      connStatus.classList.toggle("err", !ok);
+      connStatus.title = text;
+    }
+  }
+
+  function setTaskStatus(text) {
+    if (taskStatusLine) taskStatusLine.textContent = text;
+  }
+
+  function setChatTitle(t) {
+    const s = (t || "").trim() || "新任务";
+    const short = s.length > 48 ? `${s.slice(0, 48)}…` : s;
+    if (chatTaskTitle) chatTaskTitle.textContent = short;
   }
 
   function escapeHtml(s) {
@@ -178,6 +214,28 @@
     return "(无标题)";
   }
 
+  function filterSessionsByQuery(sessions, q) {
+    const needle = (q || "").trim().toLowerCase();
+    if (!needle) return sessions;
+    return sessions.filter((s) => {
+      const t = historyTitleLine(s).toLowerCase();
+      const id = String(s.id || "").toLowerCase();
+      return t.includes(needle) || id.includes(needle);
+    });
+  }
+
+  function updateTaskStrip(sessions) {
+    if (!taskStrip) return;
+    if (!Array.isArray(sessions) || !sessions.length) {
+      taskStrip.textContent = "暂无任务摘要";
+      taskStrip.classList.add("muted");
+      return;
+    }
+    const top = sessions[0];
+    taskStrip.classList.remove("muted");
+    taskStrip.textContent = historyTitleLine(top);
+  }
+
   function renderTranscriptFromGatewayMessages(messages) {
     transcript.innerHTML = "";
     if (!Array.isArray(messages)) return;
@@ -199,12 +257,17 @@
   }
 
   function renderHistoryList(sessions) {
-    if (!Array.isArray(sessions) || !sessions.length) {
+    lastSessions = Array.isArray(sessions) ? sessions : [];
+    const q = sidebarSearch ? sidebarSearch.value : "";
+    const list = filterSessionsByQuery(lastSessions, q);
+    updateTaskStrip(lastSessions);
+
+    if (!list.length) {
       sessionHistoryList.innerHTML =
-        '<div class="session-history-empty muted">暂无历史会话（或数据库未就绪）</div>';
+        '<div class="muted" style="padding:8px 10px;font-size:12px;line-height:1.45">暂无历史会话（或数据库未就绪）</div>';
       return;
     }
-    sessionHistoryList.innerHTML = sessions
+    sessionHistoryList.innerHTML = list
       .map((s) => {
         const id = String(s.id || "");
         const active = activeDbSessionId && id === activeDbSessionId ? " active" : "";
@@ -212,13 +275,13 @@
         const cnt = Number(s.message_count) || 0;
         const src = escapeHtml(String(s.source || "").slice(0, 12) || "—");
         const when = formatRelativeTime(s.started_at);
-        return `<button type="button" class="session-history-item${active}" data-db-id="${escapeHtml(id)}" role="listitem" title="${title}">
-<span class="hi-ico" aria-hidden="true">✓</span>
-<span class="session-history-body">
-<span class="session-history-title">${title}</span>
-<span class="session-history-meta">
-<span class="session-history-sub">${cnt} 条 · ${src}</span>
-<span class="session-history-time">${escapeHtml(when)}</span>
+        return `<button type="button" class="wb-history-item${active}" data-db-id="${escapeHtml(id)}" role="listitem" title="${title}">
+<span class="wb-hi-ico" aria-hidden="true">✓</span>
+<span class="wb-history-body">
+<span class="wb-history-title">${title}</span>
+<span class="wb-history-meta">
+<span class="wb-history-sub">${cnt} 条 · ${src}</span>
+<span class="wb-history-time">${escapeHtml(when)}</span>
 </span>
 </span>
 </button>`;
@@ -231,7 +294,7 @@
       const r = await gw.request("session.list", { limit: 50 });
       renderHistoryList(r.sessions || []);
     } catch (e) {
-      sessionHistoryList.innerHTML = `<div class="session-history-empty muted">${escapeHtml(
+      sessionHistoryList.innerHTML = `<div class="muted" style="padding:8px 10px;font-size:12px">${escapeHtml(
         String(e.message || e),
       )}</div>`;
     }
@@ -269,6 +332,7 @@
         renderAgentCard(res.info);
         renderSkills(res.info.skills);
       }
+      setChatTitle(historyTitleLine({ title: "", preview: (res.messages || []).find((m) => m.role === "user")?.text }));
       bubble("system", `已打开历史会话 · ${activeDbSessionId}`);
       await refreshSidebars();
       await loadSessionHistory();
@@ -312,12 +376,12 @@
       .filter((c) => Array.isArray(skillsByCategory[c]) && skillsByCategory[c].length)
       .sort();
     const parts = [
-      `<button type="button" class="filter-pill${skillsFilterCat === "__all__" ? " active" : ""}" data-cat="__all__">全部</button>`,
+      `<button type="button" class="wb-cat-pill${skillsFilterCat === "__all__" ? " active" : ""}" data-cat="__all__">全部</button>`,
     ];
     for (const c of cats) {
       const active = skillsFilterCat === c ? " active" : "";
       parts.push(
-        `<button type="button" class="filter-pill${active}" data-cat="${escapeHtml(c)}">${escapeHtml(c)}</button>`,
+        `<button type="button" class="wb-cat-pill${active}" data-cat="${escapeHtml(c)}">${escapeHtml(c)}</button>`,
       );
     }
     skillsFilters.innerHTML = parts.join("");
@@ -326,8 +390,8 @@
   function paintSkillsGrid() {
     const q = (skillsSearch.value || "").trim().toLowerCase();
     if (!skillsByCategory || !countSkills(skillsByCategory)) {
-      skillsCount.textContent = "";
-      skillsList.className = "skills-list skill-grid skill-grid-page muted";
+      skillsCount.textContent = "0";
+      skillsList.className = "wb-skills-installed muted";
       skillsList.textContent = "暂无可用 Skills（或仍在加载）";
       return;
     }
@@ -342,11 +406,11 @@
       }
     }
     items.sort((a, b) => a.name.localeCompare(b.name));
-    skillsCount.textContent = items.length ? `${items.length} 项` : "0 项";
-    skillsList.className = "skills-list skill-grid skill-grid-page";
+    skillsCount.textContent = String(items.length);
+    skillsList.className = "wb-skills-installed";
     if (!items.length) {
       skillsList.innerHTML =
-        '<div class="muted" style="grid-column:1/-1;padding:8px;font-size:0.75rem;line-height:1.4">无匹配技能，可切换分类或清空搜索</div>';
+        '<div class="muted" style="grid-column:1/-1;padding:12px;font-size:13px">无匹配技能，可切换分类或清空搜索</div>';
       return;
     }
     skillsList.innerHTML = items
@@ -354,9 +418,9 @@
         const h = skillHue(name);
         const L = escapeHtml(skillLetterIcon(name));
         const safeName = escapeHtml(name);
-        return `<button type="button" class="skill-card" data-skill="${safeName}" title="${safeName}">
-<span class="skill-card-icon" style="background:hsl(${h},68%,90%)">${L}</span>
-<span class="skill-card-body"><span class="skill-card-name">${safeName}</span><span class="skill-card-cat">${escapeHtml(cat)}</span></span>
+        return `<button type="button" class="wb-skill-card" data-skill="${safeName}" title="${safeName}">
+<span class="wb-skill-ico" style="background:hsl(${h},68%,90%)">${L}</span>
+<span class="wb-skill-body"><span class="wb-skill-name">${safeName}</span><span class="wb-skill-cat">${escapeHtml(cat)}</span></span>
 </button>`;
       })
       .join("");
@@ -364,11 +428,11 @@
 
   function renderAgentCard(info) {
     if (!info || typeof info !== "object") {
-      agentCard.className = "agent-card muted";
+      agentCard.className = "wb-agent-card muted";
       agentCard.textContent = "无 Agent 信息";
       return;
     }
-    agentCard.className = "agent-card";
+    agentCard.className = "wb-agent-card";
     const model = escapeHtml(String(info.model || "—"));
     const cwd = escapeHtml(String(info.cwd || "—"));
     const ver = escapeHtml(String(info.version || "—"));
@@ -420,11 +484,11 @@
 
   function renderToolsets(toolsets) {
     if (!Array.isArray(toolsets) || !toolsets.length) {
-      toolsetsList.className = "toolsets-list muted";
+      toolsetsList.className = "wb-toolsets muted";
       toolsetsList.textContent = "无法加载工具集（会话未就绪？）";
       return;
     }
-    toolsetsList.className = "toolsets-list";
+    toolsetsList.className = "wb-toolsets";
     toolsetsList.innerHTML = toolsets
       .map((ts) => {
         const name = escapeHtml(String(ts.name || ""));
@@ -433,7 +497,7 @@
         const tag = en ? `<span class="tag tag-on">开</span>` : `<span class="tag tag-off">关</span>`;
         const cnt = ts.tool_count != null ? Number(ts.tool_count) : (ts.tools && ts.tools.length) || 0;
         const tools = Array.isArray(ts.tools) ? ts.tools.map((t) => escapeHtml(String(t))).join("\n") : "";
-        return `<details class="toolset-item" ${en ? "open" : ""}>
+        return `<details class="wb-toolset-item" ${en ? "open" : ""}>
 <summary><span>${name}</span><span class="toolset-meta">${tag}<span class="muted">${cnt}</span></span></summary>
 <div class="toolset-desc">${desc}</div>
 <pre class="toolset-tools">${tools || "—"}</pre>
@@ -445,18 +509,18 @@
   function renderSubagents(data) {
     const active = (data && data.active) || [];
     if (!active.length) {
-      subagentList.className = "compact-list muted";
+      subagentList.className = "wb-compact muted";
       subagentList.textContent = "无运行中的子 Agent";
       return;
     }
-    subagentList.className = "compact-list";
+    subagentList.className = "wb-compact";
     subagentList.innerHTML = active
       .map((a) => {
         const id = escapeHtml(String(a.subagent_id || "?"));
         const model = escapeHtml(String(a.model || "—"));
         const goal = escapeHtml(String(a.goal || "").slice(0, 120));
         const st = escapeHtml(String(a.status || "—"));
-        return `<div class="compact-row"><div class="r-title">${id} · ${model}</div><div class="r-sub">${st}${goal ? ` · ${goal}` : ""}</div></div>`;
+        return `<div class="wb-row"><div class="wb-r-title">${id} · ${model}</div><div class="wb-r-sub">${st}${goal ? ` · ${goal}` : ""}</div></div>`;
       })
       .join("");
   }
@@ -464,18 +528,18 @@
   function renderBgProcs(data) {
     const procs = (data && data.processes) || [];
     if (!procs.length) {
-      bgProcsList.className = "compact-list muted";
+      bgProcsList.className = "wb-compact muted";
       bgProcsList.textContent = "无登记的后台进程";
       return;
     }
-    bgProcsList.className = "compact-list";
+    bgProcsList.className = "wb-compact";
     bgProcsList.innerHTML = procs
       .map((p) => {
         const sid = escapeHtml(String(p.session_id || "?"));
         const cmd = escapeHtml(String(p.command || "").slice(0, 100));
         const st = escapeHtml(String(p.status || "—"));
         const up = p.uptime != null ? `${Math.round(Number(p.uptime))}s` : "";
-        return `<div class="compact-row"><div class="r-title">${sid}</div><div class="r-sub">${st}${up ? ` · ${up}` : ""} · ${cmd}</div></div>`;
+        return `<div class="wb-row"><div class="wb-r-title">${sid}</div><div class="wb-r-sub">${st}${up ? ` · ${up}` : ""} · ${cmd}</div></div>`;
       })
       .join("");
   }
@@ -484,7 +548,7 @@
     if (!sessionId) return;
     const tasks = [
       gw.request("tools.list", { session_id: sessionId }).then((r) => renderToolsets(r.toolsets)).catch(() => {
-        toolsetsList.className = "toolsets-list muted";
+        toolsetsList.className = "wb-toolsets muted";
         toolsetsList.textContent = "tools.list 失败";
       }),
       gw
@@ -520,7 +584,7 @@
 
   function bubble(role, text) {
     const el = document.createElement("div");
-    el.className = `bubble ${role}`;
+    el.className = `wb-bubble ${role}`;
     el.textContent = text;
     transcript.appendChild(el);
     transcript.scrollTop = transcript.scrollHeight;
@@ -533,20 +597,20 @@
   }
 
   function resetSidebarsLoading() {
-    agentCard.className = "agent-card muted";
+    agentCard.className = "wb-agent-card muted";
     agentCard.textContent = "正在初始化 Agent…";
     skillsByCategory = null;
     skillsFilterCat = "__all__";
     skillsSearch.value = "";
     skillsFilters.innerHTML = "";
-    skillsList.className = "skills-list skill-grid skill-grid-page muted";
+    skillsList.className = "wb-skills-installed muted";
     skillsList.textContent = "加载中…";
-    skillsCount.textContent = "";
-    toolsetsList.className = "toolsets-list muted";
+    skillsCount.textContent = "0";
+    toolsetsList.className = "wb-toolsets muted";
     toolsetsList.textContent = "加载中…";
-    subagentList.className = "compact-list muted";
+    subagentList.className = "wb-compact muted";
     subagentList.textContent = "—";
-    bgProcsList.className = "compact-list muted";
+    bgProcsList.className = "wb-compact muted";
     bgProcsList.textContent = "—";
   }
 
@@ -567,6 +631,8 @@
     btnSend.disabled = false;
     clearTranscript();
     resetSidebarsLoading();
+    setChatTitle("新任务");
+    setTaskStatus("就绪");
     const res = await gw.request("session.create", { cols: 100 });
     sessionId = res.session_id;
     if (res.info) {
@@ -612,6 +678,7 @@
         ensureAssistantBubble();
         turnBusy = true;
         btnStop.disabled = false;
+        setTaskStatus("正在生成…");
         break;
       case "message.delta": {
         const t = (payload && payload.text) || "";
@@ -632,6 +699,7 @@
         turnBusy = false;
         btnStop.disabled = true;
         btnSend.disabled = false;
+        setTaskStatus("就绪");
         transcript.scrollTop = transcript.scrollHeight;
         refreshSidebars().catch(() => {});
         loadSessionHistory().catch(() => {});
@@ -644,6 +712,7 @@
         turnBusy = false;
         btnStop.disabled = true;
         btnSend.disabled = false;
+        setTaskStatus("出错");
         break;
       }
       case "tool.start":
@@ -673,10 +742,10 @@
         ? payload.summary
         : JSON.stringify(payload, null, 2);
     modal.innerHTML = `
-      <div class="modal-card">
+      <div class="wb-modal-card">
         <h2 style="margin:0 0 8px;font-size:1rem">需要审批</h2>
         <pre>${escapeHtml(summary)}</pre>
-        <div class="modal-actions">
+        <div class="wb-modal-actions">
           <button type="button" class="btn primary" data-choice="approve">允许</button>
           <button type="button" class="btn secondary" data-choice="deny">拒绝</button>
         </div>
@@ -700,10 +769,12 @@
     const t = text.trim();
     if (!t || !sessionId || turnBusy) return;
     bubble("user", t);
+    setChatTitle(t);
     input.value = "";
     turnBusy = true;
     btnSend.disabled = true;
     btnStop.disabled = false;
+    setTaskStatus("等待回复…");
     try {
       await gw.request("prompt.submit", { session_id: sessionId, text: t });
     } catch (e) {
@@ -711,6 +782,7 @@
       turnBusy = false;
       btnSend.disabled = false;
       btnStop.disabled = true;
+      setTaskStatus("就绪");
     }
   }
 
@@ -739,15 +811,21 @@
     loadSessionHistory().catch((e) => bubble("system", String(e.message || e)));
   };
 
+  if (btnChatPlus) {
+    btnChatPlus.onclick = () => {
+      newSession().catch((e) => bubble("system", String(e.message || e)));
+    };
+  }
+
   sessionHistoryList.addEventListener("click", (e) => {
-    const row = e.target.closest(".session-history-item");
+    const row = e.target.closest(".wb-history-item");
     if (!row) return;
     const id = row.getAttribute("data-db-id");
     if (id) resumeFromHistory(id).catch(() => {});
   });
 
   skillsFilters.addEventListener("click", (e) => {
-    const btn = e.target.closest(".filter-pill");
+    const btn = e.target.closest(".wb-cat-pill");
     if (!btn) return;
     skillsFilterCat = btn.getAttribute("data-cat") || "__all__";
     renderFilterPills();
@@ -757,14 +835,21 @@
   skillsSearch.addEventListener("input", () => paintSkillsGrid());
 
   navMenu.addEventListener("click", (e) => {
-    const btn = e.target.closest(".nav-item");
-    if (!btn) return;
+    const btn = e.target.closest(".wb-nav-item[data-view]");
+    if (!btn || btn.id === "nav-library-toggle") return;
     const v = btn.getAttribute("data-view");
     if (v) setView(v);
   });
 
+  document.querySelector(".wb-composer-toolbar")?.addEventListener("click", (e) => {
+    const sw = e.target.closest("[data-view-switch]");
+    if (!sw) return;
+    const v = sw.getAttribute("data-view-switch");
+    if (v) setView(v);
+  });
+
   skillsList.addEventListener("click", (e) => {
-    const card = e.target.closest(".skill-card");
+    const card = e.target.closest(".wb-skill-card");
     if (!card) return;
     const skill = card.getAttribute("data-skill");
     if (!skill) return;
@@ -784,6 +869,42 @@
   btnNew.onclick = () => {
     newSession().catch((e) => bubble("system", String(e.message || e)));
   };
+
+  if (navLibraryToggle && navLibrarySub) {
+    navLibraryToggle.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const open = navLibrarySub.hasAttribute("hidden");
+      if (open) {
+        navLibrarySub.removeAttribute("hidden");
+        navLibraryToggle.setAttribute("aria-expanded", "true");
+      } else {
+        navLibrarySub.setAttribute("hidden", "");
+        navLibraryToggle.setAttribute("aria-expanded", "false");
+      }
+    });
+  }
+
+  if (sidebarSearch) {
+    sidebarSearch.addEventListener("input", () => {
+      renderHistoryList(lastSessions);
+    });
+  }
+
+  if (expertCatPills) {
+    expertCatPills.addEventListener("click", (e) => {
+      const p = e.target.closest(".wb-cat-pill");
+      if (!p) return;
+      expertCatPills.querySelectorAll(".wb-cat-pill").forEach((x) => x.classList.remove("active"));
+      p.classList.add("active");
+    });
+  }
+
+  document.querySelector(".wb-market-tabs")?.addEventListener("click", (e) => {
+    const t = e.target.closest(".wb-mtab");
+    if (!t) return;
+    document.querySelectorAll(".wb-mtab").forEach((x) => x.classList.remove("active"));
+    t.classList.add("active");
+  });
 
   gw.onEvent = onGatewayEvent;
 

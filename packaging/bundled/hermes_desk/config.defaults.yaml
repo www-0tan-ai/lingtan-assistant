@@ -1,12 +1,16 @@
-# HermesDesk 便携版 — 首次运行会复制为 hermes_data/config.yaml 并与内置默认值合并。
-# 密钥请写在同目录 .env（勿提交仓库），例如：
-#   OPENAI_API_KEY=sk-...
-# 也可在系统环境变量中设置，或使用 CLI：hermes setup
+# HermesDesk 便携版 — 首次运行会复制为 hermes_data/config.yaml，并与内置默认值深度合并。
+#
+# 默认：本机 Ollama（OpenAI 兼容，无需在 .env 填密钥）
+#   1) 安装并启动 Ollama：https://ollama.com
+#   2) 拉取与 default 一致的模型，例如：ollama pull llama3.2
+# 若 default 留空，Hermes 在本机仅加载 1 个模型时会尝试从 /v1/models 自动推断。
+#
+# 改用云端时：将 model 改为你的服务商（如 provider: openai）并填写 hermes_data/.env。
 
-model: ""
-# 示例（按你的账号修改）：
-# provider: openai
-# model: gpt-4o-mini
+model:
+  provider: custom
+  base_url: "http://127.0.0.1:11434/v1"
+  default: "llama3.2"
 
 agent:
   max_turns: 60

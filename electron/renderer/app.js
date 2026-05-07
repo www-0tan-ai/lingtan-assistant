@@ -103,6 +103,8 @@
   const agentCard = document.getElementById("agent-card");
   const skillsList = document.getElementById("skills-list");
   const skillsCount = document.getElementById("skills-count");
+  const skillsSearch = document.getElementById("skills-search");
+  const skillsFilters = document.getElementById("skills-filters");
   const toolsetsList = document.getElementById("toolsets-list");
   const activityList = document.getElementById("activity-list");
   const subagentList = document.getElementById("subagent-list");
@@ -117,6 +119,10 @@
   let assistantText = "";
   /** @type {ReturnType<typeof setInterval> | null} */
   let pollTimer = null;
+  /** @type {Record<string, string[]> | null} */
+  let skillsByCategory = null;
+  /** @type {string} */
+  let skillsFilterCat = "__all__";
 
   function setConn(ok, text) {
     connPill.textContent = text;
@@ -139,6 +145,79 @@
   function countSkills(skills) {
     if (!skills || typeof skills !== "object") return 0;
     return Object.values(skills).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0);
+  }
+
+  function skillHue(name) {
+    let h = 0;
+    const s = String(name);
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h % 360;
+  }
+
+  function skillLetterIcon(name) {
+    const s = String(name).trim();
+    if (!s) return "?";
+    const ch = s[0];
+    return /^[\x00-\x7f]$/.test(ch) ? ch.toUpperCase() : ch;
+  }
+
+  function renderFilterPills() {
+    if (!skillsByCategory || !countSkills(skillsByCategory)) {
+      skillsFilters.innerHTML = "";
+      return;
+    }
+    const cats = Object.keys(skillsByCategory)
+      .filter((c) => Array.isArray(skillsByCategory[c]) && skillsByCategory[c].length)
+      .sort();
+    const parts = [
+      `<button type="button" class="filter-pill${skillsFilterCat === "__all__" ? " active" : ""}" data-cat="__all__">全部</button>`,
+    ];
+    for (const c of cats) {
+      const active = skillsFilterCat === c ? " active" : "";
+      parts.push(
+        `<button type="button" class="filter-pill${active}" data-cat="${escapeHtml(c)}">${escapeHtml(c)}</button>`,
+      );
+    }
+    skillsFilters.innerHTML = parts.join("");
+  }
+
+  function paintSkillsGrid() {
+    const q = (skillsSearch.value || "").trim().toLowerCase();
+    if (!skillsByCategory || !countSkills(skillsByCategory)) {
+      skillsCount.textContent = "";
+      skillsList.className = "skills-list skill-grid muted";
+      skillsList.textContent = "暂无可用 Skills（或仍在加载）";
+      return;
+    }
+    const items = [];
+    for (const [cat, names] of Object.entries(skillsByCategory)) {
+      if (!Array.isArray(names)) continue;
+      if (skillsFilterCat !== "__all__" && skillsFilterCat !== cat) continue;
+      for (const name of names) {
+        const ns = String(name);
+        if (q && !ns.toLowerCase().includes(q)) continue;
+        items.push({ cat, name: ns });
+      }
+    }
+    items.sort((a, b) => a.name.localeCompare(b.name));
+    skillsCount.textContent = items.length ? `${items.length} 项` : "0 项";
+    skillsList.className = "skills-list skill-grid";
+    if (!items.length) {
+      skillsList.innerHTML =
+        '<div class="muted" style="grid-column:1/-1;padding:8px;font-size:0.75rem;line-height:1.4">无匹配技能，可切换分类或清空搜索</div>';
+      return;
+    }
+    skillsList.innerHTML = items
+      .map(({ cat, name }) => {
+        const h = skillHue(name);
+        const L = escapeHtml(skillLetterIcon(name));
+        const safeName = escapeHtml(name);
+        return `<button type="button" class="skill-card" data-skill="${safeName}" title="${safeName}">
+<span class="skill-card-icon" style="background:hsl(${h},68%,90%)">${L}</span>
+<span class="skill-card-body"><span class="skill-card-name">${safeName}</span><span class="skill-card-cat">${escapeHtml(cat)}</span></span>
+</button>`;
+      })
+      .join("");
   }
 
   function renderAgentCard(info) {
@@ -191,25 +270,10 @@
   }
 
   function renderSkills(skills) {
-    const n = countSkills(skills);
-    skillsCount.textContent = n ? `${n} 项` : "";
-    if (!skills || typeof skills !== "object" || !n) {
-      skillsList.className = "skills-list muted";
-      skillsList.textContent = "暂无可用 Skills（或仍在加载）";
-      return;
-    }
-    skillsList.className = "skills-list";
-    const cats = Object.keys(skills).sort();
-    skillsList.innerHTML = cats
-      .map((cat) => {
-        const names = skills[cat];
-        if (!Array.isArray(names) || !names.length) return "";
-        const chips = names
-          .map((name) => `<span class="skill-chip" title="${escapeHtml(name)}">${escapeHtml(name)}</span>`)
-          .join("");
-        return `<div class="skill-cat"><div class="skill-cat-name">${escapeHtml(cat)}</div><div class="skill-chips">${chips}</div></div>`;
-      })
-      .join("");
+    skillsByCategory = skills && typeof skills === "object" ? skills : null;
+    skillsFilterCat = "__all__";
+    renderFilterPills();
+    paintSkillsGrid();
   }
 
   function renderToolsets(toolsets) {
@@ -329,7 +393,11 @@
   function resetSidebarsLoading() {
     agentCard.className = "agent-card muted";
     agentCard.textContent = "正在初始化 Agent…";
-    skillsList.className = "skills-list muted";
+    skillsByCategory = null;
+    skillsFilterCat = "__all__";
+    skillsSearch.value = "";
+    skillsFilters.innerHTML = "";
+    skillsList.className = "skills-list skill-grid muted";
     skillsList.textContent = "加载中…";
     skillsCount.textContent = "";
     toolsetsList.className = "toolsets-list muted";
@@ -442,7 +510,7 @@
         const preview = (payload && payload.preview) || "";
         li.textContent = preview ? `${name}: ${preview}` : name;
         activityList.appendChild(li);
-        activityList.parentElement.scrollTop = activityList.parentElement.scrollHeight;
+        li.scrollIntoView({ block: "nearest", behavior: "smooth" });
         break;
       }
       case "approval.request": {
@@ -522,6 +590,27 @@
   btnSend.onclick = () => sendMessage(input.value);
   btnStop.onclick = () => stopTurn();
   btnRefresh.onclick = () => refreshSidebars().catch((e) => bubble("system", String(e.message || e)));
+
+  skillsFilters.addEventListener("click", (e) => {
+    const btn = e.target.closest(".filter-pill");
+    if (!btn) return;
+    skillsFilterCat = btn.getAttribute("data-cat") || "__all__";
+    renderFilterPills();
+    paintSkillsGrid();
+  });
+
+  skillsSearch.addEventListener("input", () => paintSkillsGrid());
+
+  skillsList.addEventListener("click", (e) => {
+    const card = e.target.closest(".skill-card");
+    if (!card) return;
+    const skill = card.getAttribute("data-skill");
+    if (!skill) return;
+    const prefix = skill.startsWith("/") ? skill : `/${skill}`;
+    input.value = `${prefix} `;
+    input.focus();
+  });
+
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();

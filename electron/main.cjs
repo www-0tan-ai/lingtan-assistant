@@ -24,6 +24,16 @@ function rendererStaticDir() {
   return path.join(__dirname, "renderer");
 }
 
+/** Window / taskbar icon (PNG). Packaged copy lives under extraResources. */
+function appIconPath() {
+  if (app.isPackaged) {
+    const p = path.join(process.resourcesPath, "app-icon.png");
+    return fs.existsSync(p) ? p : undefined;
+  }
+  const p = path.join(__dirname, "build", "icon.png");
+  return fs.existsSync(p) ? p : undefined;
+}
+
 function bundledSidecarPath() {
   const dir = path.join(process.resourcesPath, "sidecar");
   if (process.platform === "win32") {
@@ -219,6 +229,7 @@ async function createWindow() {
     minWidth: 800,
     minHeight: 560,
     title: "0tan",
+    icon: appIconPath(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

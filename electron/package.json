@@ -2,6 +2,7 @@
   "name": "0tan-electron",
   "version": "0.1.0",
   "private": true,
+  "author": "0tan.com",
   "description": "0tan desktop shell (Electron + Python tui_gateway WebSocket)",
   "main": "main.cjs",
   "scripts": {

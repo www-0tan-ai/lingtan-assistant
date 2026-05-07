@@ -2,6 +2,7 @@
 appId: com.0tan.desktop
 productName: 0tan
 copyright: Copyright 0tan contributors
+icon: build/icon.png
 
 directories:
   output: ../dist-electron-pack
@@ -18,6 +19,8 @@ extraResources:
     to: renderer
   - from: ../dist/hermes-electron-sidecar
     to: sidecar
+  - from: build/icon.png
+    to: app-icon.png
 
 win:
   # 避免在未启用 Windows 开发者模式时解压 winCodeSign 内 darwin 符号链接失败（无 symlink 权限）

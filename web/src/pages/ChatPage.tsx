@@ -24,12 +24,13 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Button, Typography } from "@nous-research/ui";
 import { cn } from "@/lib/utils";
-import { Copy, PanelRight, X } from "lucide-react";
+import { Copy, LayoutDashboard, PanelRight, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 
 import { ChatSidebar } from "@/components/ChatSidebar";
+import { VisualChatPane } from "@/components/VisualChatPane";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { useI18n } from "@/i18n";
 import { PluginSlot } from "@/plugins";
@@ -101,6 +102,8 @@ function terminalLineHeightForWidth(layoutWidthPx: number): number {
   return layoutWidthPx < 1024 ? 1.02 : 1.15;
 }
 
+const CHAT_SURFACE_KEY = "hermes.dashboard.chatSurface";
+
 export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -149,6 +152,21 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   const resumeRef = useRef<string | null>(searchParams.get("resume"));
   const channel = useMemo(() => generateChannelId(), []);
 
+  const [chatSurface, setChatSurface] = useState<"visual" | "terminal">(() => {
+    if (typeof window === "undefined") return "visual";
+    return localStorage.getItem(CHAT_SURFACE_KEY) === "terminal"
+      ? "terminal"
+      : "visual";
+  });
+  const persistChatSurface = useCallback((s: "visual" | "terminal") => {
+    try {
+      localStorage.setItem(CHAT_SURFACE_KEY, s);
+    } catch {
+      /* ignore quota / private mode */
+    }
+    setChatSurface(s);
+  }, []);
+
   useEffect(() => {
     const mql = window.matchMedia("(max-width: 1023px)");
     const sync = () => setNarrow(mql.matches);
@@ -187,6 +205,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       setEnd(null);
       return;
     }
+    if (chatSurface !== "terminal") {
+      setEnd(null);
+      return;
+    }
     if (!narrow) {
       setEnd(null);
       return;
@@ -210,7 +232,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       </Button>,
     );
     return () => setEnd(null);
-  }, [isActive, narrow, mobilePanelOpen, modelToolsLabel, setEnd]);
+  }, [isActive, narrow, mobilePanelOpen, modelToolsLabel, setEnd, chatSurface]);
 
   const handleCopyLast = () => {
     const ws = wsRef.current;
@@ -232,6 +254,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   };
 
   useEffect(() => {
+    if (chatSurface !== "terminal") {
+      return;
+    }
+
     const host = hostRef.current;
     if (!host) return;
 
@@ -618,7 +644,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         copyResetRef.current = null;
       }
     };
-  }, [channel]);
+  }, [channel, chatSurface]);
 
   // When the user returns to the chat tab (isActive: false → true), the
   // terminal host just transitioned from display:none to display:flex.
@@ -637,7 +663,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   // tabs, we must not yank focus away from wherever they left it when
   // they come back — that's a surprise and an a11y foot-gun.
   useEffect(() => {
-    if (!isActive) return;
+    if (!isActive || chatSurface !== "terminal") return;
     let raf1 = 0;
     let raf2 = 0;
     raf1 = requestAnimationFrame(() => {
@@ -663,7 +689,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       if (raf1) cancelAnimationFrame(raf1);
       if (raf2) cancelAnimationFrame(raf2);
     };
-  }, [isActive]);
+  }, [isActive, chatSurface]);
 
   // Layout:
   //   outer flex column — sits inside the dashboard's content area
@@ -684,6 +710,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   // dashboard column uses `relative z-2`, which traps `position:fixed`
   // descendants below those layers (see Toast.tsx).
   const mobileModelToolsPortal =
+    chatSurface === "terminal" &&
     isActive &&
     narrow &&
     portalRoot &&
@@ -756,10 +783,35 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       portalRoot,
     );
 
+  if (chatSurface === "visual") {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-2 normal-case">
+        <PluginSlot name="chat:top" />
+        <VisualChatPane
+          isActive={isActive}
+          onSwitchToTerminal={() => persistChatSurface("terminal")}
+        />
+        <PluginSlot name="chat:bottom" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 normal-case">
       <PluginSlot name="chat:top" />
       {mobileModelToolsPortal}
+
+      <div className="flex flex-wrap items-center justify-end gap-2 px-0.5">
+        <Button
+          size="sm"
+          outlined
+          onClick={() => persistChatSurface("visual")}
+          prefix={<LayoutDashboard className="h-3 w-3" />}
+          className="normal-case tracking-normal"
+        >
+          图形界面
+        </Button>
+      </div>
 
       {banner && (
         <div className="border border-warning/50 bg-warning/10 text-warning px-3 py-2 text-xs tracking-wide">

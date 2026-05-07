@@ -1,5 +1,5 @@
 /**
- * Electron main: spawn Python sidecar (hermes_electron), open BrowserWindow.
+ * Electron main: spawn Python sidecar (0tan shell → hermes_electron), open BrowserWindow.
  */
 const { app, BrowserWindow } = require("electron");
 const { spawn } = require("child_process");
@@ -58,7 +58,7 @@ function startSidecar() {
     HERMES_ELECTRON_RENDERER: staticDir,
   };
   if (app.isPackaged) {
-    const deskData = path.join(path.dirname(process.execPath), "hermes_data");
+    const deskData = path.join(path.dirname(process.execPath), "0tan_data");
     env.HERMES_HOME = deskData;
   }
 
@@ -125,7 +125,7 @@ async function loadURLWithRetry(win, url) {
       return;
     } catch (e) {
       lastErr = e;
-      console.warn(`[hermes-electron] loadURL attempt ${i + 1}/${attempts}:`, e?.message || e);
+      console.warn(`[0tan] loadURL attempt ${i + 1}/${attempts}:`, e?.message || e);
       await new Promise((r) => setTimeout(r, delayMs));
     }
   }
@@ -197,9 +197,9 @@ async function createWindow() {
     console.error(e);
     const { dialog } = require("electron");
     const hint = app.isPackaged
-      ? "便携版：请确认 resources\\sidecar 目录完整；配置与密钥写在 EXE 同目录的 hermes_data\\。"
+      ? "便携版：请确认 resources\\sidecar 目录完整；配置与密钥写在 EXE 同目录的 0tan_data\\。"
       : "开发模式：请在仓库根目录 pip install -e \".[electron-shell]\" 并使用 .venv。";
-    dialog.showErrorBox("HermesDesk", `无法启动 Python 侧车。\n\n${String(e.message || e)}\n\n${hint}`);
+    dialog.showErrorBox("0tan", `无法启动 Python 侧车。\n\n${String(e.message || e)}\n\n${hint}`);
     app.quit();
     return;
   }
@@ -210,7 +210,7 @@ async function createWindow() {
   try {
     await probeHttpRetry(url);
   } catch (e) {
-    console.error("[hermes-electron] HTTP probe failed:", e);
+    console.error("[0tan] HTTP probe failed:", e);
   }
 
   mainWindow = new BrowserWindow({
@@ -218,7 +218,7 @@ async function createWindow() {
     height: 800,
     minWidth: 800,
     minHeight: 560,
-    title: "HermesDesk",
+    title: "0tan",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -232,7 +232,7 @@ async function createWindow() {
     console.error(e);
     const { dialog } = require("electron");
     dialog.showErrorBox(
-      "HermesDesk",
+      "0tan",
       `无法加载界面 (${url.slice(0, 48)}…)\n\n${String(e.message || e)}\n\n` +
         "若偶发 ERR_NETWORK_CHANGED，可重试；若每次失败，请检查侧车日志。",
     );

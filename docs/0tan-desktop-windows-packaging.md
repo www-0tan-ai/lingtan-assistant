@@ -1,6 +1,6 @@
-# HermesDesk（Windows）打包说明
+# 0tan 桌面（Windows）打包说明
 
-本文说明如何在 Windows x64 上从源码构建 **HermesDesk** 便携版：Electron 壳 + PyInstaller 打包的 Python 侧车（`tui_gateway` WebSocket + 静态 UI），以及首次运行时的数据目录行为。
+本文说明如何在 Windows x64 上从源码构建 **0tan** 便携版：Electron 壳 + PyInstaller 打包的 Python 侧车（`tui_gateway` WebSocket + 静态 UI），以及首次运行时的数据目录行为。
 
 ## 环境与依赖
 
@@ -31,25 +31,25 @@
 
 | 路径 | 含义 |
 |------|------|
-| `dist/hermes-electron-sidecar/` | PyInstaller 侧车目录（含 `hermes-electron-sidecar.exe` 与 `_internal`） |
-| `dist-electron-pack/HermesDesk-<version>-portable.exe` | **单文件便携启动器**（内含 Electron、renderer、侧车资源） |
+| `dist/hermes-electron-sidecar/` | PyInstaller 侧车目录（含可执行文件与 `_internal`） |
+| `dist-electron-pack/0tan-<version>-portable.exe` | **单文件便携启动器**（内含 Electron、renderer、侧车资源） |
 
-版本号取自 `electron/package.json` 的 `version` 字段（当前为 `0.1.0` 时，文件名为 `HermesDesk-0.1.0-portable.exe`）。
+版本号取自 `electron/package.json` 的 `version` 字段（例如 `0.1.0` 时，文件名为 `0tan-0.1.0-portable.exe`）。
 
-> **注意**：`dist/` 与 `dist-electron-pack/` 体积较大，**不要提交到 Git**。分发时请使用 GitHub Releases（或其它制品库）上传 `HermesDesk-*-portable.exe`。
+> **注意**：`dist/` 与 `dist-electron-pack/` 体积较大，**不要提交到 Git**。分发时请使用 GitHub Releases（或其它制品库）上传 `0tan-*-portable.exe`。
 
-## 首次运行与 `hermes_data`
+## 首次运行与 `0tan_data`
 
-打包后的便携 EXE 启动时，主进程会将 `HERMES_HOME` 设为：
+打包后的便携 EXE 启动时，主进程会将工作数据目录设为：
 
-`<便携 EXE 所在目录>\hermes_data`
+`<便携 EXE 所在目录>\0tan_data`
 
-若该目录下尚无 `config.yaml` / `.env`，侧车会从内置的 `packaging/bundled/hermes_desk/` 模板复制：
+若该目录下尚无 `config.yaml` / `.env`，侧车会从内置的 `packaging/bundled/otan_desk/` 模板复制：
 
-- `config.defaults.yaml` → `hermes_data/config.yaml`
-- `env.sample` → `hermes_data/.env`
+- `config.defaults.yaml` → `0tan_data/config.yaml`
+- `env.sample` → `0tan_data/.env`
 
-默认模型配置指向本机 **Ollama**（`http://127.0.0.1:11434/v1`，模型名 `llama3.2`）。改用云端时，请编辑 `hermes_data/config.yaml` 并在 `hermes_data/.env` 中填写对应密钥（勿将含真实密钥的文件提交仓库）。
+默认模型配置指向本机 **Ollama**（`http://127.0.0.1:11434/v1`，模型名 `llama3.2`）。改用云端时，请编辑 `0tan_data/config.yaml` 并在 `0tan_data/.env` 中填写对应密钥（勿将含真实密钥的文件提交仓库）。
 
 ## 相关文件索引
 
@@ -57,7 +57,7 @@
 - Electron 配置：`electron/electron-builder.yml`、`electron/main.cjs`
 - 侧车入口与便携逻辑：`packaging/pyinstaller/electron_sidecar_entry.py`
 - PyInstaller 规格：`packaging/pyinstaller/hermes_electron_sidecar.spec`
-- 内置默认配置模板：`packaging/bundled/hermes_desk/`
+- 内置默认配置模板：`packaging/bundled/otan_desk/`
 
 ## 常见问题
 
@@ -74,18 +74,18 @@
 **3. 运行后无法连上模型**
 
 - 若使用默认 Ollama：确认 Ollama 已启动且已 `ollama pull` 对应模型。
-- 若使用云端：检查 `hermes_data/config.yaml` 与 `.env` 是否匹配服务商要求。
+- 若使用云端：检查 `0tan_data/config.yaml` 与 `.env` 是否匹配服务商要求。
 
 **4. 仅开发调试（不打包）**
 
-- 在仓库根目录配置好 `.venv`，在 `electron/` 下 `npm install` 后 `npm start`；此时由 `main.cjs` 使用 `.venv` 中的 `python -m hermes_electron`，而非 frozen 侧车。
+- 在仓库根目录配置好 `.venv`，在 `electron/` 下 `npm install` 后 `npm start`；此时由 `main.cjs` 使用 `.venv` 中的 Python 模块启动侧车，而非 frozen 侧车。
 
 **5. `pip install -e` 报错 `WinError 32`（文件被占用）**
 
-- 通常因本机正在运行 `hermes.exe`（或其它进程占用 `.venv\Scripts\hermes.exe`）。关闭相关进程后重试打包脚本。
+- 通常因本机正在运行 CLI 可执行文件（或其它进程占用 `.venv\Scripts\` 下同名入口）。关闭相关进程后重试打包脚本。
 
 ## 分发建议
 
-1. 在 CI 或本机构建得到 `HermesDesk-*-portable.exe`。
+1. 在 CI 或本机构建得到 `0tan-*-portable.exe`。
 2. 计算校验和（如 SHA256）并写入 Release 说明。
 3. 将 exe 作为 **Release 附件**上传；仓库源码仅保留文档与脚本，不跟踪大二进制文件。

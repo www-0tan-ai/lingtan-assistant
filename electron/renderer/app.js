@@ -1,5 +1,5 @@
 /**
- * tui_gateway JSON-RPC over WebSocket — HermesDesk UI（WorkBuddy 参考布局）
+ * tui_gateway JSON-RPC over WebSocket — 0tan 桌面壳
  */
 (() => {
   const REQUEST_TIMEOUT_MS = 120000;
@@ -132,6 +132,9 @@
   const navLibraryToggle = document.getElementById("nav-library-toggle");
   const navLibrarySub = document.getElementById("nav-library-sub");
   const expertCatPills = document.getElementById("expert-cat-pills");
+  const expertGroupsGrid = document.getElementById("expert-groups-grid");
+  const expertRosterGrid = document.getElementById("expert-roster-grid");
+  const workspaceFolderName = document.getElementById("workspace-folder-name");
 
   let sessionId = null;
   /** @type {string | null} */
@@ -147,6 +150,11 @@
   let skillsFilterCat = "__all__";
   /** @type {any[]} */
   let lastSessions = [];
+  /** @type {any[]} */
+  let lastRosterAgents = [];
+  /** @type {any[]} */
+  let lastToolsets = [];
+  let expertFilter = "all";
 
   function setView(name) {
     const v = VIEWS.includes(name) ? name : "chat";
@@ -158,6 +166,195 @@
       const dv = el.getAttribute("data-view");
       el.classList.toggle("active", dv === v);
     });
+    onViewShown(v).catch(() => {});
+  }
+
+  function hashStr(s) {
+    let h = 0;
+    const t = String(s);
+    for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0;
+    return h;
+  }
+
+  async function loadProfileHome() {
+    try {
+      const r = await gw.request("config.get", { key: "profile" });
+      if (workspaceFolderName && r && r.display) {
+        const norm = String(r.display).replace(/\\/g, "/");
+        const parts = norm.split("/").filter(Boolean);
+        workspaceFolderName.textContent = parts[parts.length - 1] || "0tan_data";
+      }
+    } catch {
+      /* keep HTML default */
+    }
+  }
+
+  async function loadRoster() {
+    try {
+      const r = await gw.request("config.get", { key: "lingtan.roster" });
+      lastRosterAgents = Array.isArray(r.agents) ? r.agents : [];
+    } catch {
+      lastRosterAgents = [];
+    }
+    renderExpertViews();
+  }
+
+  function renderExpertViews() {
+    if (!expertGroupsGrid || !expertRosterGrid) return;
+    const agents = lastRosterAgents.filter((a) => {
+      if (expertFilter === "on") return a.enabled !== false;
+      if (expertFilter === "off") return a.enabled === false;
+      return true;
+    });
+    const labels = lastRosterAgents.map((a) => a.name || a.id).filter(Boolean);
+    const names = labels.join("、");
+    expertGroupsGrid.innerHTML = `
+      <article class="wb-card-team" style="grid-column:1/-1;max-width:720px">
+        <div class="wb-card-team-art">◆</div>
+        <h3 class="wb-card-team-name">0tan 委派代理组</h3>
+        <div class="wb-card-tags"><span>配置同步</span><span>子任务</span></div>
+        <p class="wb-card-desc">${escapeHtml(names || "尚未配置子代理，可在应用配置中添加 agents 列表。")}</p>
+        <div class="wb-card-team-foot"><span class="wb-avatars">${"●".repeat(Math.min(lastRosterAgents.length, 6)) || "—"}</span><span class="wb-use-count">${lastRosterAgents.length} 个角色</span></div>
+      </article>`;
+    if (!agents.length) {
+      expertRosterGrid.innerHTML =
+        '<div class="muted" style="grid-column:1/-1;padding:12px">当前筛选下无条目</div>';
+      return;
+    }
+    const avatars = ["👤", "🎯", "📎", "🔍", "📋", "⚡"];
+    expertRosterGrid.innerHTML = agents
+      .map((a, idx) => {
+        const id = escapeHtml(String(a.id || ""));
+        const nm = escapeHtml(String(a.name || a.id || "未命名"));
+        const desc = escapeHtml(String(a.description || "").slice(0, 220));
+        const ts = Array.isArray(a.toolsets) ? a.toolsets : [];
+        const tags = ts
+          .slice(0, 6)
+          .map((t) => `<span>${escapeHtml(String(t))}</span>`)
+          .join("");
+        const av = avatars[idx % avatars.length];
+        const on = a.enabled !== false ? "已启用" : "未启用";
+        return `<article class="wb-card-expert">
+        <div class="wb-ex-avatar">${av}</div>
+        <div class="wb-ex-body">
+          <div class="wb-ex-title">${nm}</div>
+          <div class="wb-card-tags">${tags || "<span>—</span>"}</div>
+          <p class="wb-card-desc">${desc}</p>
+          <div class="wb-ex-foot"><span>${id}</span><span class="wb-use-count">${on}</span></div>
+        </div>
+      </article>`;
+      })
+      .join("");
+  }
+
+  function renderConnectorCards(toolsets) {
+    const grid = document.getElementById("connector-toolset-grid");
+    if (!grid) return;
+    if (!Array.isArray(toolsets) || !toolsets.length) {
+      grid.innerHTML =
+        '<div class="muted" style="grid-column:1/-1;padding:12px">无工具集数据（会话未就绪？）</div>';
+      return;
+    }
+    const icons = ["📦", "🔧", "🌐", "💾", "📊", "🧠", "⚙️", "🔌", "📝", "🗂"];
+    grid.innerHTML = toolsets
+      .map((ts) => {
+        const raw = String(ts.name || "");
+        const ico = icons[hashStr(raw) % icons.length];
+        const name = escapeHtml(raw);
+        const desc = escapeHtml(String(ts.description || "").slice(0, 160));
+        const cnt = ts.tool_count != null ? Number(ts.tool_count) : (ts.tools && ts.tools.length) || 0;
+        const en = ts.enabled !== false;
+        const cls = en ? "wb-conn-card" : "wb-conn-card wb-conn-off";
+        const safeAttr = encodeURIComponent(raw);
+        return `<article class="${cls}" data-toolset="${safeAttr}" role="button" tabindex="0">
+<span class="wb-conn-ico">${ico}</span><div><div class="wb-conn-name">${name}</div><p class="wb-conn-desc">${desc}</p>
+<p class="muted" style="margin:6px 0 0;font-size:11px">${en ? "已启用" : "未启用"} · ${cnt} 个工具</p></div>
+<button type="button" class="wb-conn-add" data-toolset="${safeAttr}" aria-label="引用">+</button></article>`;
+      })
+      .join("");
+    grid.onclick = (ev) => {
+      const t = ev.target.closest("[data-toolset]");
+      if (!t) return;
+      const n = decodeURIComponent(t.getAttribute("data-toolset") || "");
+      if (!n) return;
+      setView("chat");
+      input.value = `（优先使用工具集「${n}」内能力） `;
+      input.focus();
+    };
+  }
+
+  async function loadExplorePlugins() {
+    const el = document.getElementById("explore-plugins");
+    if (!el) return;
+    try {
+      const r = await gw.request("plugins.list", {});
+      const pl = r.plugins || [];
+      if (!pl.length) {
+        el.className = "wb-market-list muted";
+        el.innerHTML = "<div class=\"muted\">未加载插件</div>";
+        return;
+      }
+      el.className = "wb-market-list";
+      el.innerHTML = pl
+        .map(
+          (p) => `<div class="wb-market-row">
+<span class="wb-m-ico">🔌</span>
+<div>
+<div class="wb-m-title">${escapeHtml(p.name)} <span class="muted">${p.enabled !== false ? "启用" : "停用"}</span></div>
+<div class="wb-m-desc">版本 ${escapeHtml(String(p.version))}</div>
+</div>
+</div>`,
+        )
+        .join("");
+    } catch (e) {
+      el.className = "wb-market-list muted";
+      el.textContent = String(e.message || e);
+    }
+  }
+
+  async function loadCronJobs() {
+    const grid = document.getElementById("cron-jobs-grid");
+    if (!grid) return;
+    try {
+      const r = await gw.request("cron.manage", { action: "list" });
+      const jobs = (r && r.jobs) || [];
+      if (!jobs.length) {
+        grid.innerHTML =
+          '<div class="muted" style="grid-column:1/-1;padding:12px">暂无定时任务</div>';
+        return;
+      }
+      grid.innerHTML = jobs
+        .map((j) => {
+          const title = escapeHtml(String(j.name || j.job_id || "任务"));
+          const sub = escapeHtml(String(j.prompt_preview || j.schedule || "").slice(0, 100));
+          const st = escapeHtml(String(j.state || j.last_status || "—"));
+          return `<article class="wb-auto-card"><span class="wb-auto-ico">⏱</span><strong>${title}</strong><p>${sub}</p><p class="muted" style="margin-top:6px;font-size:11px">状态：${st}</p></article>`;
+        })
+        .join("");
+    } catch (e) {
+      grid.innerHTML = `<div class="muted" style="grid-column:1/-1;padding:12px">${escapeHtml(
+        String(e.message || e),
+      )}</div>`;
+    }
+  }
+
+  async function onViewShown(v) {
+    if (v === "experts") await loadRoster();
+    if (v === "explore") await loadExplorePlugins();
+    if (v === "automation") await loadCronJobs();
+    if (v === "connectors" && sessionId) {
+      if (lastToolsets.length) {
+        renderConnectorCards(lastToolsets);
+      } else {
+        try {
+          const r = await gw.request("tools.list", { session_id: sessionId });
+          lastToolsets = r.toolsets || [];
+          renderConnectorCards(lastToolsets);
+        } catch {
+          renderConnectorCards([]);
+        }
+      }
+    }
   }
 
   function setConn(ok, text) {
@@ -547,10 +744,19 @@
   async function refreshSidebars() {
     if (!sessionId) return;
     const tasks = [
-      gw.request("tools.list", { session_id: sessionId }).then((r) => renderToolsets(r.toolsets)).catch(() => {
-        toolsetsList.className = "wb-toolsets muted";
-        toolsetsList.textContent = "tools.list 失败";
-      }),
+      gw
+        .request("tools.list", { session_id: sessionId })
+        .then((r) => {
+          lastToolsets = r.toolsets || [];
+          renderToolsets(r.toolsets);
+          renderConnectorCards(lastToolsets);
+        })
+        .catch(() => {
+          lastToolsets = [];
+          toolsetsList.className = "wb-toolsets muted";
+          toolsetsList.textContent = "工具列表加载失败";
+          renderConnectorCards([]);
+        }),
       gw
         .request("skills.manage", { action: "list" })
         .then((r) => renderSkills(r.skills))
@@ -624,6 +830,7 @@
     }
     sessionId = null;
     activeDbSessionId = null;
+    lastToolsets = [];
     turnBusy = false;
     assistantEl = null;
     assistantText = "";
@@ -795,7 +1002,7 @@
     }
   }
 
-  const quicks = ["你好，介绍一下你自己", "今天天气怎么样？", "用一句话总结 Hermes 项目"];
+  const quicks = ["你好，介绍一下你自己", "今天天气怎么样？", "用一句话总结当前代码仓库"];
   quicks.forEach((q) => {
     const b = document.createElement("button");
     b.type = "button";
@@ -809,6 +1016,9 @@
   btnRefresh.onclick = () => {
     refreshSidebars().catch((e) => bubble("system", String(e.message || e)));
     loadSessionHistory().catch((e) => bubble("system", String(e.message || e)));
+    loadRoster().catch(() => {});
+    loadExplorePlugins().catch(() => {});
+    loadCronJobs().catch(() => {});
   };
 
   if (btnChatPlus) {
@@ -896,6 +1106,8 @@
       if (!p) return;
       expertCatPills.querySelectorAll(".wb-cat-pill").forEach((x) => x.classList.remove("active"));
       p.classList.add("active");
+      expertFilter = p.getAttribute("data-filter") || "all";
+      renderExpertViews();
     });
   }
 
@@ -914,6 +1126,10 @@
       setConn(true, "已连接");
       await newSession();
       startPolling();
+      await loadProfileHome();
+      await loadRoster();
+      await loadExplorePlugins();
+      await loadCronJobs();
     } catch (e) {
       setConn(false, "未连接");
       bubble("system", String(e.message || e));

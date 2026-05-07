@@ -1,4 +1,4 @@
-/* HermesDesk — WorkBuddy 参考布局（浅色 / 绿色强调） */
+/* 0tan — WorkBuddy 参考布局（浅色 / 绿色强调） */
 :root {
   --wb-green: #28c76f;
   --wb-green-dark: #1fa75a;
@@ -1187,6 +1187,9 @@ body {
 .wb-conn-card.wb-conn-focus {
   border-color: #93c5fd;
   box-shadow: 0 0 0 1px #bfdbfe;
+}
+.wb-conn-card.wb-conn-off {
+  opacity: 0.55;
 }
 .wb-conn-ico {
   font-size: 26px;

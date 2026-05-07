@@ -1,7 +1,7 @@
 # Windows portable EXE + bundled PyInstaller sidecar (run from repo root via scripts/build_windows_electron_desktop.ps1).
-appId: com.hermes.desk
-productName: HermesDesk
-copyright: Copyright Hermes contributors
+appId: com.0tan.desktop
+productName: 0tan
+copyright: Copyright 0tan contributors
 
 directories:
   output: ../dist-electron-pack
@@ -27,6 +27,6 @@ win:
     - target: portable
       arch:
         - x64
-  artifactName: HermesDesk-${version}-portable.exe
+  artifactName: 0tan-${version}-portable.exe
 
 compression: normal

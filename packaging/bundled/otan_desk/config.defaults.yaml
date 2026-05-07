@@ -1,11 +1,11 @@
-# HermesDesk 便携版 — 首次运行会复制为 hermes_data/config.yaml，并与内置默认值深度合并。
+# 0tan 便携版 — 首次运行会复制为 0tan_data/config.yaml，并与内置默认值深度合并。
 #
 # 默认：本机 Ollama（OpenAI 兼容，无需在 .env 填密钥）
 #   1) 安装并启动 Ollama：https://ollama.com
 #   2) 拉取与 default 一致的模型，例如：ollama pull llama3.2
-# 若 default 留空，Hermes 在本机仅加载 1 个模型时会尝试从 /v1/models 自动推断。
+# 若 default 留空，在本机仅加载 1 个模型时会尝试从 /v1/models 自动推断。
 #
-# 改用云端时：将 model 改为你的服务商（如 provider: openai）并填写 hermes_data/.env。
+# 改用云端时：将 model 改为你的服务商并填写 0tan_data/.env。
 
 model:
   provider: custom

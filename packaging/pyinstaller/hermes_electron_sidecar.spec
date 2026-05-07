@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Python sidecar for HermesDesk (Electron). Build from repo root::
+"""Python sidecar for 0tan desktop (Electron). Build from repo root::
 
   pip install -e ".[cli,electron-shell]" "pyinstaller>=6.3,<7"
   pyinstaller packaging/pyinstaller/hermes_electron_sidecar.spec
@@ -18,7 +18,7 @@ block_cipher = None
 
 ROOT = Path(SPECPATH).resolve().parent.parent
 entry_script = ROOT / "packaging" / "pyinstaller" / "electron_sidecar_entry.py"
-bundled = ROOT / "packaging" / "bundled" / "hermes_desk"
+bundled = ROOT / "packaging" / "bundled" / "otan_desk"
 
 datas = []
 if bundled.is_dir():

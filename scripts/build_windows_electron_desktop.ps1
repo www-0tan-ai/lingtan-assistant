@@ -1,12 +1,12 @@
-# Build HermesDesk: PyInstaller sidecar + electron-builder portable EXE (Windows x64).
+# Build 0tan desktop: PyInstaller sidecar + electron-builder portable EXE (Windows x64).
 # Run from repository root:
 #   .\scripts\build_windows_electron_desktop.ps1
 #
 # Output:
-#   dist\hermes-electron-sidecar\   — Python 侧车（被嵌入 resources\sidecar）
-#   dist-electron-pack\HermesDesk-*-portable.exe  — 单文件便携启动器（内含 Electron + 侧车 + UI）
+#   dist\hermes-electron-sidecar\   — Python sidecar (embedded under resources\sidecar)
+#   dist-electron-pack\0tan-*-portable.exe  — single-file portable launcher
 #
-# 首次运行会在 EXE 同目录创建 hermes_data\（config.yaml / .env 模板来自内置包）。
+# First run creates 0tan_data\ next to the EXE (defaults from bundled otan_desk templates).
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -40,4 +40,4 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Set-Location $Root
 Write-Host ""
 Write-Host "Done. Portable EXE under: $(Join-Path $Root 'dist-electron-pack')"
-Get-ChildItem (Join-Path $Root "dist-electron-pack") -Filter "HermesDesk*.exe" | ForEach-Object { Write-Host "  $($_.FullName)" }
+Get-ChildItem (Join-Path $Root "dist-electron-pack") -Filter "0tan*.exe" | ForEach-Object { Write-Host "  $($_.FullName)" }

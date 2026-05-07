@@ -1,7 +1,7 @@
-"""PyInstaller entry: Hermes Electron Python sidecar (FastAPI + tui_gateway WebSocket).
+"""PyInstaller entry: 0tan Electron Python sidecar (FastAPI + tui_gateway WebSocket).
 
-HermesDesk 便携版由 Electron 主进程设置 ``HERMES_HOME``（通常为 EXE 同目录下的
-``hermes_data``）。若未设置且为 frozen 构建，则回退到侧车 exe 旁（仅调试）。
+便携版由 Electron 设置 ``HERMES_HOME``（通常为 EXE 同目录下的 ``0tan_data``）。
+若未设置且为 frozen 构建，则回退到侧车 exe 旁（仅调试）。
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def _resolve_hermes_home() -> Path | None:
     if raw:
         return Path(raw)
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / "hermes_data"
+        return Path(sys.executable).resolve().parent / "0tan_data"
     return None
 
 

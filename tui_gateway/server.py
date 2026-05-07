@@ -3715,6 +3715,15 @@ def _(rid, params: dict) -> dict:
             )
         except Exception:
             return _ok(rid, {"mtime": 0})
+    if key == "lingtan.roster":
+        cfg = _load_cfg()
+        ui = cfg.get("lingtan_ui")
+        agents: list = []
+        if isinstance(ui, dict):
+            raw = ui.get("agents")
+            if isinstance(raw, list):
+                agents = [a for a in raw if isinstance(a, dict)]
+        return _ok(rid, {"agents": agents})
     return _err(rid, 4002, f"unknown config key: {key}")
 
 

@@ -75,3 +75,5 @@ models-dev-upstream/
 # PyInstaller (Windows EXE build: pyinstaller packaging/pyinstaller/hermes.spec)
 /build/
 /dist/
+# HermesDesk portable EXE (electron-builder)
+/dist-electron-pack/

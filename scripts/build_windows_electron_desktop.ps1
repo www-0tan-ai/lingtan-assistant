@@ -33,6 +33,7 @@ Write-Host "==> npm install (electron + electron-builder)"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "==> electron-builder portable"
+$env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
 & npm run pack:win
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

@@ -20,6 +20,9 @@ extraResources:
     to: sidecar
 
 win:
+  # 避免在未启用 Windows 开发者模式时解压 winCodeSign 内 darwin 符号链接失败（无 symlink 权限）
+  signAndEditExecutable: false
+  signDlls: false
   target:
     - target: portable
       arch:

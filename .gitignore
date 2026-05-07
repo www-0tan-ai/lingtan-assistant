@@ -71,3 +71,7 @@ mini-swe-agent/
 result
 website/static/api/skills-index.json
 models-dev-upstream/
+
+# PyInstaller (Windows EXE build: pyinstaller packaging/pyinstaller/hermes.spec)
+/build/
+/dist/

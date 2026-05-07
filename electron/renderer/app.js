@@ -115,8 +115,11 @@
   const viewSkills = document.getElementById("view-skills");
   const viewTools = document.getElementById("view-tools");
   const navMenu = document.getElementById("nav-menu");
+  const sessionHistoryList = document.getElementById("session-history-list");
 
   let sessionId = null;
+  /** @type {string | null} DB session id when last opened via resume; null after brand-new session.create */
+  let activeDbSessionId = null;
   let turnBusy = false;
   /** @type {HTMLElement | null} */
   let assistantEl = null;
@@ -149,6 +152,131 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  function formatRelativeTime(ts) {
+    const n = Number(ts);
+    if (!n || n <= 0) return "";
+    const ms = n > 1e12 ? n : n * 1000;
+    const diff = Date.now() - ms;
+    const sec = Math.floor(diff / 1000);
+    if (sec < 45) return "刚刚";
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}分钟前`;
+    const hr = Math.floor(min / 60);
+    if (hr < 36) return `${hr}小时前`;
+    const days = Math.floor(hr / 24);
+    if (days < 45) return `${days}天前`;
+    return new Date(ms).toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+  }
+
+  function historyTitleLine(s) {
+    const t = (s.title || "").trim();
+    if (t) return t.length > 100 ? `${t.slice(0, 100)}…` : t;
+    const p = (s.preview || "").trim().replace(/\s+/g, " ");
+    if (p) return p.length > 90 ? `${p.slice(0, 90)}…` : p;
+    return "(无标题)";
+  }
+
+  function renderTranscriptFromGatewayMessages(messages) {
+    transcript.innerHTML = "";
+    if (!Array.isArray(messages)) return;
+    for (const m of messages) {
+      const role = m.role;
+      const textRaw = m.text != null ? String(m.text) : "";
+      const ctx = m.context ? String(m.context) : "";
+      const text = ctx ? `${textRaw}\n${ctx}`.trim() : textRaw;
+      if (role === "tool") {
+        const nm = m.name ? String(m.name) : "tool";
+        bubble("system", `${nm}: ${text.slice(0, 2000)}`);
+        continue;
+      }
+      if (role === "user" || role === "assistant" || role === "system") {
+        bubble(role, text);
+      }
+    }
+    transcript.scrollTop = transcript.scrollHeight;
+  }
+
+  function renderHistoryList(sessions) {
+    if (!Array.isArray(sessions) || !sessions.length) {
+      sessionHistoryList.innerHTML =
+        '<div class="session-history-empty muted">暂无历史会话（或数据库未就绪）</div>';
+      return;
+    }
+    sessionHistoryList.innerHTML = sessions
+      .map((s) => {
+        const id = String(s.id || "");
+        const active = activeDbSessionId && id === activeDbSessionId ? " active" : "";
+        const title = escapeHtml(historyTitleLine(s));
+        const cnt = Number(s.message_count) || 0;
+        const src = escapeHtml(String(s.source || "").slice(0, 12) || "—");
+        const when = formatRelativeTime(s.started_at);
+        return `<button type="button" class="session-history-item${active}" data-db-id="${escapeHtml(id)}" role="listitem" title="${title}">
+<span class="hi-ico" aria-hidden="true">✓</span>
+<span class="session-history-body">
+<span class="session-history-title">${title}</span>
+<span class="session-history-meta">
+<span class="session-history-sub">${cnt} 条 · ${src}</span>
+<span class="session-history-time">${escapeHtml(when)}</span>
+</span>
+</span>
+</button>`;
+      })
+      .join("");
+  }
+
+  async function loadSessionHistory() {
+    try {
+      const r = await gw.request("session.list", { limit: 50 });
+      renderHistoryList(r.sessions || []);
+    } catch (e) {
+      sessionHistoryList.innerHTML = `<div class="session-history-empty muted">${escapeHtml(
+        String(e.message || e),
+      )}</div>`;
+    }
+  }
+
+  async function resumeFromHistory(dbSessionId) {
+    const target = String(dbSessionId || "").trim();
+    if (!target) return;
+    if (turnBusy) {
+      bubble("system", "当前正在回复，请稍后再打开历史会话。");
+      return;
+    }
+    try {
+      if (sessionId) {
+        try {
+          await gw.request("session.close", { session_id: sessionId });
+        } catch {
+          /* ignore */
+        }
+      }
+      sessionId = null;
+      assistantEl = null;
+      assistantText = "";
+      turnBusy = false;
+      btnStop.disabled = true;
+      btnSend.disabled = false;
+      clearTranscript();
+      activityList.innerHTML = "";
+
+      const res = await gw.request("session.resume", { session_id: target, cols: 100 });
+      sessionId = res.session_id;
+      activeDbSessionId = res.resumed || target;
+      renderTranscriptFromGatewayMessages(res.messages);
+      if (res.info) {
+        renderAgentCard(res.info);
+        renderSkills(res.info.skills);
+      }
+      bubble("system", `已打开历史会话 · ${activeDbSessionId}`);
+      await refreshSidebars();
+      await loadSessionHistory();
+      setView("chat");
+    } catch (e) {
+      bubble("system", `恢复会话失败：${String(e.message || e)}`);
+      await loadSessionHistory();
+    }
   }
 
   function countToolsFromSessionInfo(tools) {
@@ -431,6 +559,7 @@
       }
     }
     sessionId = null;
+    activeDbSessionId = null;
     turnBusy = false;
     assistantEl = null;
     assistantText = "";
@@ -445,6 +574,7 @@
       renderSkills(res.info.skills);
     }
     bubble("system", `会话已创建 · ${sessionId}`);
+    loadSessionHistory().catch(() => {});
     setTimeout(() => refreshSidebars(), 400);
     setTimeout(() => refreshSidebars(), 2500);
   }
@@ -504,6 +634,7 @@
         btnSend.disabled = false;
         transcript.scrollTop = transcript.scrollHeight;
         refreshSidebars().catch(() => {});
+        loadSessionHistory().catch(() => {});
         break;
       }
       case "error": {
@@ -603,7 +734,17 @@
 
   btnSend.onclick = () => sendMessage(input.value);
   btnStop.onclick = () => stopTurn();
-  btnRefresh.onclick = () => refreshSidebars().catch((e) => bubble("system", String(e.message || e)));
+  btnRefresh.onclick = () => {
+    refreshSidebars().catch((e) => bubble("system", String(e.message || e)));
+    loadSessionHistory().catch((e) => bubble("system", String(e.message || e)));
+  };
+
+  sessionHistoryList.addEventListener("click", (e) => {
+    const row = e.target.closest(".session-history-item");
+    if (!row) return;
+    const id = row.getAttribute("data-db-id");
+    if (id) resumeFromHistory(id).catch(() => {});
+  });
 
   skillsFilters.addEventListener("click", (e) => {
     const btn = e.target.closest(".filter-pill");

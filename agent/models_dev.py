@@ -144,6 +144,14 @@ PROVIDER_TO_MODELS_DEV: Dict[str, str] = {
     "anthropic": "anthropic",
     "openai": "openai",
     "openai-codex": "openai",
+    # Azure AI Foundry serves OpenAI-compatible models (gpt-4o, gpt-5.x, codex,
+    # o1/o3/o4) on its inference endpoints. The model IDs match OpenAI's, so
+    # routing capability lookups through the OpenAI catalog gives correct
+    # vision/tool/context-window flags.
+    "azure-foundry": "openai",
+    "azure": "openai",
+    "azure-ai-foundry": "openai",
+    "azure-ai": "openai",
     "zai": "zai",
     "kimi-coding": "kimi-for-coding",
     "stepfun": "stepfun",
@@ -381,14 +389,18 @@ def get_model_capabilities(provider: str, model: str) -> Optional[ModelCapabilit
 
     # Extract capability flags (default to False if missing)
     supports_tools = bool(entry.get("tool_call", False))
-    # Vision: check both the `attachment` flag and `modalities.input` for "image".
-    # Some models (e.g. gemma-4) list image in input modalities but not attachment.
+    # Vision: prefer explicit `modalities.input` when models.dev provides it.
+    # The older `attachment` flag can be stale or too broad for image routing;
+    # fall back to it only when the input modalities are absent/invalid.
     input_mods = entry.get("modalities", {})
     if isinstance(input_mods, dict):
-        input_mods = input_mods.get("input", [])
+        input_mods = input_mods.get("input")
     else:
-        input_mods = []
-    supports_vision = bool(entry.get("attachment", False)) or "image" in input_mods
+        input_mods = None
+    if isinstance(input_mods, list):
+        supports_vision = "image" in input_mods
+    else:
+        supports_vision = bool(entry.get("attachment", False))
     supports_reasoning = bool(entry.get("reasoning", False))
 
     # Extract limits

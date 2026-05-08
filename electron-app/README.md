@@ -6,8 +6,10 @@ Windows desktop application (`.exe`).
 
 The Electron main process:
 
-1. Discovers a Python interpreter (prefers `<repo>/.venv/Scripts/python.exe`,
-   falls back to `python` / `py` on `PATH`).
+1. Discovers a Python interpreter. **Packaged Windows `.exe`:** uses the
+   official embeddable CPython shipped under `resources/seed/python-embed/`
+   (downloaded at build time — see `scripts/vendor-python-embed.cjs`).
+   **Dev:** prefers `<repo>/.venv/Scripts/python.exe`, then `python` on `PATH`.
 2. Picks a free port (default `8787`, auto-increments if taken).
 3. Launches `hermes-webui/server.py` as a child process.
 4. Shows a splash window, polls `http://127.0.0.1:<port>/`, and once the
@@ -55,16 +57,18 @@ Output is written to `electron-app/dist/`:
 
 The build bundles `../hermes-webui/` as `extraResources`; tests, docs,
 Docker assets and `__pycache__` are filtered out (see `package.json` →
-`build.extraResources.filter`). Python itself is **not** bundled — the
-end user must have Python 3.11+ on `PATH`. If you need a fully
-self-contained installer, point `LINGTAN_PYTHON` at a PyInstaller-frozen
-`server.exe` and add it to `extraResources`.
+`build.extraResources.filter`). On **Windows**, `npm run seed` also
+downloads the official **embeddable Python** (default 3.11.9) into
+`seed/python-embed/`, which ships inside the installer so end users do
+not need a system Python. Override the version with
+`LINGTAN_PYTHON_EMBED_VERSION` when running the seed script if needed.
 
 ## Environment variables
 
 | Var | Purpose |
 | --- | --- |
 | `LINGTAN_PYTHON` | Absolute path to a Python interpreter |
+| `LINGTAN_PYTHON_EMBED_VERSION` | (build-time, optional) Embed zip version, e.g. `3.11.9`. Default `3.11.9`. |
 | `LINGTAN_PORT` | Preferred port (auto-increments on collision) |
 | `LINGTAN_DEV` | `1` to force devtools / dev-mode resource paths |
 | `LINGTAN_SETTINGS_PASSWORD` | (build-time only) Password to unlock the in-app Settings panel. Default `lingtan2026`. Only its SHA-256 is bundled. |

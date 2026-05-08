@@ -170,7 +170,19 @@ function findPythonExecutable() {
   const candidates = [];
   const repoRoot = getRepoRoot();
 
-  if (process.env.LINGTAN_PYTHON) candidates.push({ path: process.env.LINGTAN_PYTHON, kind: 'env' });
+  if (process.env.LINGTAN_PYTHON) {
+    candidates.push({ path: process.env.LINGTAN_PYTHON, kind: 'env' });
+  }
+
+  // Packaged Windows builds ship embeddable CPython under resources/seed/python-embed/
+  // (see scripts/vendor-python-embed.cjs).  Prefer it before dev venv / PATH so end
+  // users never need a system install.
+  if (app.isPackaged && process.platform === 'win32') {
+    candidates.push({
+      path: path.join(process.resourcesPath, 'seed', 'python-embed', 'python.exe'),
+      kind: 'bundled',
+    });
+  }
 
   // Bundled / sibling venv (dev workflow)
   if (process.platform === 'win32') {
@@ -197,12 +209,12 @@ function findPythonExecutable() {
       continue;
     }
     if (path.isAbsolute(c.path)) {
-      if (fs.existsSync(c.path)) return c.path;
-    } else {
-      // Validate PATH candidate up-front so we fail with a clear "python missing"
-      // dialog instead of a later opaque backend exit code.
+      if (!fs.existsSync(c.path)) continue;
       if (canRunPythonCommand(c.path)) return c.path;
+      continue;
     }
+    // PATH lookup — validate so we fail with a clear dialog instead of exit 9009.
+    if (canRunPythonCommand(c.path)) return c.path;
   }
   return null;
 }
@@ -270,8 +282,11 @@ function startPythonServer(port) {
   if (!python) {
     dialog.showErrorBox(
       'Python not found',
-      'Lingtan Assistant requires Python 3.11+ on your system.\n' +
-        'Please install Python from https://www.python.org/ and try again.'
+      app.isPackaged && process.platform === 'win32'
+        ? '未找到可用的 Python 运行时。\n' +
+            '安装包可能不完整，请重新安装；或从 https://www.python.org/ 安装 Python 3.11+ 并加入 PATH。'
+        : 'Lingtan Assistant requires Python 3.11+ on your system.\n' +
+            'Please install Python from https://www.python.org/ and try again.'
     );
     app.exit(1);
     return null;

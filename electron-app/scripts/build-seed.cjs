@@ -27,6 +27,7 @@ const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
 const { encrypt, sha256Hex } = require('../lib/crypto-utils.cjs');
+const { vendorPythonEmbed } = require('./vendor-python-embed.cjs');
 
 const HERMES_HOME =
   process.env.HERMES_HOME || path.join(os.homedir(), '.hermes');
@@ -383,7 +384,7 @@ function readConfigYamlSanitized() {
   return fs.readFileSync(cfgPath, 'utf8');
 }
 
-function main() {
+async function main() {
   const force = process.argv.includes('--force');
   console.log(`[seed] HERMES_HOME = ${HERMES_HOME}`);
   console.log(`[seed] REPO_ROOT   = ${REPO_ROOT}`);
@@ -450,6 +451,9 @@ function main() {
   // ── 4. agent source vendoring ──────────────────────────────────────
   vendorAgentSource();
 
+  // ── 4b. Windows embeddable Python (packaged .exe — no system install) ──
+  await vendorPythonEmbed({ force, seedDir: SEED_DIR });
+
   // ── 5. Python deps vendoring (cached) ──────────────────────────────
   vendorPythonDeps({ force });
 
@@ -457,5 +461,8 @@ function main() {
 }
 
 if (require.main === module) {
-  main();
+  main().catch((e) => {
+    console.error('[seed] fatal:', e && e.stack ? e.stack : e);
+    process.exit(1);
+  });
 }

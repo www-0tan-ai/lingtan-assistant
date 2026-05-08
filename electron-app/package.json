@@ -1,6 +1,6 @@
 {
   "name": "lingtan-assistant",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Lingtan Assistant — Electron desktop wrapper for the Hermes Web UI",
   "main": "main.js",
   "private": true,

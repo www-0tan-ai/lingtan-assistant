@@ -10,7 +10,7 @@
  */
 
 const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -150,6 +150,22 @@ function isUsableVenvPython(pyPath) {
   return fs.existsSync(path.join(venvRoot, 'pyvenv.cfg'));
 }
 
+function canRunPythonCommand(cmd, extraArgs = []) {
+  try {
+    const probe = spawnSync(cmd, [...extraArgs, '--version'], {
+      windowsHide: true,
+      stdio: 'pipe',
+      shell: false,
+      timeout: 10_000,
+    });
+    // ENOENT and similar startup failures surface as probe.error.
+    if (probe.error) return false;
+    return probe.status === 0;
+  } catch {
+    return false;
+  }
+}
+
 function findPythonExecutable() {
   const candidates = [];
   const repoRoot = getRepoRoot();
@@ -167,7 +183,9 @@ function findPythonExecutable() {
 
   // System PATH fallbacks
   if (process.platform === 'win32') {
-    for (const n of ['python.exe', 'python', 'py']) candidates.push({ path: n, kind: 'path' });
+    // "py" launcher often exists without any installed interpreter on end-user
+    // machines and exits with Windows code 9009 at runtime. Prefer real python.
+    for (const n of ['python.exe', 'python']) candidates.push({ path: n, kind: 'path' });
   } else {
     for (const n of ['python3', 'python']) candidates.push({ path: n, kind: 'path' });
   }
@@ -181,8 +199,9 @@ function findPythonExecutable() {
     if (path.isAbsolute(c.path)) {
       if (fs.existsSync(c.path)) return c.path;
     } else {
-      // Trust PATH lookup — spawn will surface ENOENT.
-      return c.path;
+      // Validate PATH candidate up-front so we fail with a clear "python missing"
+      // dialog instead of a later opaque backend exit code.
+      if (canRunPythonCommand(c.path)) return c.path;
     }
   }
   return null;
@@ -322,6 +341,19 @@ function startPythonServer(port) {
     windowsHide: true,
   });
 
+  proc.on('error', (err) => {
+    const msg = String((err && err.message) || err || '');
+    flog(`python spawn error: ${msg}`);
+    if (!isQuitting) {
+      dialog.showErrorBox(
+        '后台启动失败',
+        `无法启动 Python 运行时：${msg}\n\n` +
+          '此版本需要目标机器安装 Python 3.11+，或改用内置 Python 的安装包。'
+      );
+      app.quit();
+    }
+  });
+
   proc.stdout.on('data', (d) => {
     try { process.stdout.write(`[webui] ${d}`); } catch {}
     flogChunk('[webui]    ', d);
@@ -335,10 +367,16 @@ function startPythonServer(port) {
     flog(`python server exited code=${code} signal=${signal}`);
     pyProc = null;
     if (!isQuitting && code !== 0 && code !== null) {
+      const detail =
+        code === 9009
+          ? `0tan 后台服务异常退出（退出码 ${code}）。\n` +
+            '检测到系统缺少可用 Python 运行时（或命令不可执行）。\n' +
+            '请先安装 Python 3.11+，再启动应用。'
+          : `0tan 后台服务异常退出（退出码 ${code}）。\n` +
+            '可在开发者工具或日志中查看详情。';
       dialog.showErrorBox(
         '后台已停止',
-        `0tan 后台服务异常退出（退出码 ${code}）。\n` +
-          '可在开发者工具或日志中查看详情。'
+        detail
       );
       app.quit();
     }

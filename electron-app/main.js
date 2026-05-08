@@ -311,13 +311,28 @@ function startPythonServer(port) {
   // shipped source tree and bundled dependency wheels — the user's
   // system Python doesn't need to have the agent or its 14+ deps
   // installed system-wide.
+  //
+  // We also explicitly add the webui directory itself.  For a normal
+  // CPython install `python server.py` would put the script's parent
+  // on sys.path[0] automatically; the Windows *embeddable* zip we
+  // bundle ships a `python311._pth` file that fully governs sys.path
+  // and skips that step (and ignores PYTHONPATH outright), so without
+  // this entry the embed Python crashes immediately with
+  // `ModuleNotFoundError: No module named 'api'`.
   const agentDir = getAgentDir();
   const pyDepsDir = getVendoredPyDepsDir();
   const pathSep = process.platform === 'win32' ? ';' : ':';
   const pyPathParts = [];
+  pyPathParts.push(webuiDir);
   if (app.isPackaged) pyPathParts.push(agentDir);
   if (pyDepsDir) pyPathParts.push(pyDepsDir);
   if (process.env.PYTHONPATH) pyPathParts.push(process.env.PYTHONPATH);
+
+  // sitecustomize.py inside the embed dir reads LINGTAN_PYPATH and
+  // prepends each entry to sys.path. PYTHONPATH is honored by system
+  // Python but ignored by the embed _pth, so we mirror it here to
+  // guarantee parity across both runtimes.
+  const lingtanPyPath = pyPathParts.join(pathSep);
 
   // Seed-supplied env (HERMES_HOME + decrypted API keys) takes precedence
   // over the user's shell env so a stale OPENAI_API_KEY in their PATH
@@ -332,7 +347,7 @@ function startPythonServer(port) {
     HERMES_WEBUI_AGENT_DIR: agentDir,
     PYTHONIOENCODING: 'utf-8',
     PYTHONUNBUFFERED: '1',
-    ...(pyPathParts.length ? { PYTHONPATH: pyPathParts.join(pathSep) } : {}),
+    ...(pyPathParts.length ? { PYTHONPATH: lingtanPyPath, LINGTAN_PYPATH: lingtanPyPath } : {}),
   };
 
   flog(`python      = ${python}`);

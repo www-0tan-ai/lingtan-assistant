@@ -104,6 +104,38 @@ function enableImportSite(embedRoot) {
 }
 
 /**
+ * Drop a sitecustomize.py into the embed root so that PYTHONPATH (and
+ * an explicit LINGTAN_PYPATH list passed by main.js) get appended to
+ * sys.path. The official ._pth file fully governs sys.path and
+ * deliberately ignores PYTHONPATH; without this hook the spawned
+ * server.py cannot see hermes-webui / hermes-agent / vendored deps and
+ * dies with `ModuleNotFoundError: No module named 'api'`.
+ */
+function writeSiteCustomize(embedRoot) {
+  const dst = path.join(embedRoot, 'sitecustomize.py');
+  const body = [
+    '"""Lingtan Assistant: restore PYTHONPATH for embeddable Python."""',
+    'import os',
+    'import sys',
+    '',
+    'def _add(p):',
+    '    if p and p not in sys.path:',
+    '        sys.path.insert(0, p)',
+    '',
+    '# 1) LINGTAN_PYPATH = ordered list, highest priority first.',
+    "for _p in (os.environ.get('LINGTAN_PYPATH') or '').split(os.pathsep):",
+    '    _add(_p)',
+    '',
+    '# 2) Standard PYTHONPATH (embed _pth ignores it otherwise).',
+    "for _p in (os.environ.get('PYTHONPATH') or '').split(os.pathsep):",
+    '    _add(_p)',
+    '',
+  ].join('\r\n');
+  fs.writeFileSync(dst, body, 'utf8');
+  console.log('[python-embed] wrote sitecustomize.py for PYTHONPATH bridge');
+}
+
+/**
  * @param {{ force?: boolean, seedDir: string }} opts
  */
 function vendorPythonEmbed(opts) {
@@ -159,6 +191,7 @@ function vendorPythonEmbed(opts) {
         throw new Error(`python.exe missing after unzip: ${pyExe}`);
       }
       enableImportSite(dest);
+      writeSiteCustomize(dest);
       const probe = spawnSync(pyExe, ['--version'], {
         stdio: 'pipe',
         windowsHide: true,

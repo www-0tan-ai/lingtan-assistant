@@ -33,6 +33,65 @@ let isQuitting = false;
 //   { extraEnv, settingsPasswordHash, hermesHome, secretCount }
 let seed = null;
 
+// File logger.  GUI-subsystem .exe on Windows discards process.stdout, so
+// without this any Python startup error is invisible.  Synchronous writes
+// (appendFileSync) — startup crashes happen so fast that an async stream
+// loses its buffer; we accept the perf hit because volume is tiny.
+let logFilePath = null;
+function _initLogFile() {
+  try {
+    // Use a fixed location that doesn't depend on app.getPath('userData')
+    // resolving correctly, so we can capture even very early startup errors.
+    const dir = path.join(
+      process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
+      'lingtan-assistant',
+      'logs'
+    );
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    logFilePath = path.join(dir, `lingtan-${stamp}.log`);
+    fs.appendFileSync(
+      logFilePath,
+      `[${new Date().toISOString()}] log opened: ${logFilePath}\n`
+    );
+  } catch (e) {
+    // last-ditch attempt: log dir creation failed (perms?). Try temp dir.
+    try {
+      const tmp = path.join(os.tmpdir(), 'lingtan-bootstrap.log');
+      fs.appendFileSync(tmp, `[${new Date().toISOString()}] _initLogFile failed in primary dir: ${e && e.message}; falling back to ${tmp}\n`);
+      logFilePath = tmp;
+    } catch { /* nothing we can do */ }
+  }
+}
+function flog(line) {
+  const text = `[${new Date().toISOString()}] ${line}\n`;
+  try { process.stdout.write(text); } catch {}
+  if (logFilePath) { try { fs.appendFileSync(logFilePath, text); } catch {} }
+}
+function flogChunk(prefix, buf) {
+  if (!logFilePath) return;
+  try {
+    fs.appendFileSync(
+      logFilePath,
+      `[${new Date().toISOString()}] ${prefix} ${buf}`
+    );
+  } catch {}
+}
+
+// Top-level safety net — if any uncaught exception fires before we reach
+// app.whenReady(), at least try to log it.  _initLogFile() is also called
+// at the very top of the file (immediately below) so the path is set up
+// before any other module-level code that could throw.
+process.on('uncaughtException', (e) => {
+  flog(`UNCAUGHT EXCEPTION: ${e && e.stack ? e.stack : e}`);
+});
+process.on('unhandledRejection', (r) => {
+  flog(`UNHANDLED REJECTION: ${r && r.stack ? r.stack : r}`);
+});
+
+_initLogFile();
+flog(`main.js loaded, pid=${process.pid}, cwd=${process.cwd()}, argv=${JSON.stringify(process.argv)}`);
+
 // ─────────────────────────────────────────────────────────────────────
 // Path helpers — work in both dev and packaged (asar + extraResources).
 // ─────────────────────────────────────────────────────────────────────
@@ -203,8 +262,8 @@ function startPythonServer(port) {
   const serverPy = path.join(webuiDir, 'server.py');
   if (!fs.existsSync(serverPy)) {
     dialog.showErrorBox(
-      'hermes-webui missing',
-      `Could not find ${serverPy}.\nThe app installation appears to be corrupt.`
+      '后台服务文件缺失',
+      `未找到 ${serverPy}。\n应用安装可能已损坏，请尝试重新安装。`
     );
     app.exit(1);
     return null;
@@ -242,15 +301,19 @@ function startPythonServer(port) {
     ...(pyPathParts.length ? { PYTHONPATH: pyPathParts.join(pathSep) } : {}),
   };
 
-  console.log(`[lingtan] python      = ${python}`);
-  console.log(`[lingtan] cwd         = ${webuiDir}`);
-  console.log(`[lingtan] port        = ${port}`);
-  console.log(`[lingtan] agent dir   = ${agentDir}`);
-  if (pyDepsDir) console.log(`[lingtan] py-deps     = ${pyDepsDir}`);
+  flog(`python      = ${python}`);
+  flog(`cwd         = ${webuiDir}`);
+  flog(`port        = ${port}`);
+  flog(`agent dir   = ${agentDir}`);
+  if (pyDepsDir) flog(`py-deps     = ${pyDepsDir}`);
   if (seed) {
-    console.log(`[lingtan] HERMES_HOME = ${seed.hermesHome}`);
-    console.log(`[lingtan] bundled keys = ${seed.secretCount}`);
+    flog(`HERMES_HOME = ${seed.hermesHome}`);
+    flog(`bundled keys = ${seed.secretCount}`);
   }
+  flog(`PYTHONPATH  = ${env.PYTHONPATH || '(empty)'}`);
+  flog(`HERMES_WEBUI_AGENT_DIR = ${env.HERMES_WEBUI_AGENT_DIR}`);
+  flog(`AZURE_FOUNDRY_API_KEY  = ${env.AZURE_FOUNDRY_API_KEY ? '<set len=' + env.AZURE_FOUNDRY_API_KEY.length + '>' : '<MISSING>'}`);
+  flog(`AZURE_FOUNDRY_BASE_URL = ${env.AZURE_FOUNDRY_BASE_URL || '<MISSING>'}`);
 
   const proc = spawn(python, ['server.py'], {
     cwd: webuiDir,
@@ -259,17 +322,23 @@ function startPythonServer(port) {
     windowsHide: true,
   });
 
-  proc.stdout.on('data', (d) => process.stdout.write(`[webui] ${d}`));
-  proc.stderr.on('data', (d) => process.stderr.write(`[webui:err] ${d}`));
+  proc.stdout.on('data', (d) => {
+    try { process.stdout.write(`[webui] ${d}`); } catch {}
+    flogChunk('[webui]    ', d);
+  });
+  proc.stderr.on('data', (d) => {
+    try { process.stderr.write(`[webui:err] ${d}`); } catch {}
+    flogChunk('[webui:err]', d);
+  });
 
   proc.on('exit', (code, signal) => {
-    console.log(`[lingtan] python server exited code=${code} signal=${signal}`);
+    flog(`python server exited code=${code} signal=${signal}`);
     pyProc = null;
     if (!isQuitting && code !== 0 && code !== null) {
       dialog.showErrorBox(
-        'Backend stopped',
-        `The Hermes Web UI server exited unexpectedly (code ${code}).\n` +
-          'See the developer tools / log for details.'
+        '后台已停止',
+        `0tan 后台服务异常退出（退出码 ${code}）。\n` +
+          '可在开发者工具或日志中查看详情。'
       );
       app.quit();
     }
@@ -421,10 +490,10 @@ function buildMenu() {
   const template = [
     ...(isMac ? [{ role: 'appMenu' }] : []),
     {
-      label: 'File',
+      label: '文件',
       submenu: [
         {
-          label: 'Reload',
+          label: '重新加载',
           accelerator: 'CmdOrCtrl+R',
           click: () => mainWindow && mainWindow.reload(),
         },
@@ -434,7 +503,7 @@ function buildMenu() {
     },
     { role: 'editMenu' },
     {
-      label: 'View',
+      label: '视图',
       submenu: [
         { role: 'togglefullscreen' },
         { role: 'zoomIn' },
@@ -442,28 +511,28 @@ function buildMenu() {
         { role: 'resetZoom' },
         { type: 'separator' },
         {
-          label: 'Toggle Developer Tools',
+          label: '切换开发者工具',
           accelerator: isMac ? 'Alt+Cmd+I' : 'Ctrl+Shift+I',
           click: () => mainWindow && mainWindow.webContents.toggleDevTools(),
         },
       ],
     },
     {
-      label: 'Help',
+      label: '帮助',
       submenu: [
         {
-          label: 'About Lingtan Assistant',
+          label: '关于 Lingtan Assistant',
           click: () => {
             dialog.showMessageBox(mainWindow, {
               type: 'info',
-              title: 'About',
+              title: '关于',
               message: 'Lingtan Assistant',
               detail:
-                `Version: ${app.getVersion()}\n` +
-                `Electron: ${process.versions.electron}\n` +
-                `Node: ${process.versions.node}\n` +
-                `Platform: ${process.platform} (${os.arch()})\n\n` +
-                `Backend: Hermes Web UI on http://${HOST}:${pyPort}`,
+                `版本：${app.getVersion()}\n` +
+                `Electron：${process.versions.electron}\n` +
+                `Node：${process.versions.node}\n` +
+                `平台：${process.platform} (${os.arch()})\n\n` +
+                `后台服务：0tan Web UI 运行于 http://${HOST}:${pyPort}`,
             });
           },
         },
@@ -490,12 +559,13 @@ if (!gotLock) {
 }
 
 app.whenReady().then(async () => {
-  // Decrypt the bundled secrets and seed HERMES_HOME before anything
-  // touches the network — this defines the env block we hand to Python.
+  flog(`app ready, isPackaged=${app.isPackaged} userData=${app.getPath('userData')}`);
+
   try {
     seed = loadSeed(app);
+    flog(`seed loaded: keys=${seed.secretCount} hermesHome=${seed.hermesHome}`);
   } catch (e) {
-    console.error('[lingtan] seed load failed:', e);
+    flog(`seed load failed: ${e && e.stack ? e.stack : e}`);
     seed = null;
   }
 
@@ -503,18 +573,20 @@ app.whenReady().then(async () => {
   createSplash();
 
   pyPort = (await findFreePort(DEFAULT_PORT)) || DEFAULT_PORT;
+  flog(`chosen port = ${pyPort}`);
   pyProc = startPythonServer(pyPort);
-  if (!pyProc) return;
+  if (!pyProc) { flog(`startPythonServer returned null — aborting`); return; }
 
   const url = `http://${HOST}:${pyPort}/`;
+  flog(`waiting for ${url} (90s timeout)...`);
   const ok = await waitForServer(pyPort, 90_000);
+  flog(`waitForServer result = ${ok}`);
   if (!ok) {
     dialog.showErrorBox(
-      'Backend timeout',
-      `The Hermes Web UI server did not start within 90 seconds.\n\n` +
-        `Tried: ${url}\n\n` +
-        `If this is the first launch, Python may be installing dependencies — ` +
-        `try again in a moment, or check the console output.`
+      '后台启动超时',
+      `0tan 后台服务在 90 秒内未能启动。\n\n` +
+        `尝试访问的地址：${url}\n\n` +
+        `如果是首次启动，Python 可能正在安装依赖——请稍候再试，或查看控制台输出。`
     );
     app.quit();
     return;

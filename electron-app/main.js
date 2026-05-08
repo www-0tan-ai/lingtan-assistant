@@ -52,13 +52,25 @@ function getWebuiDir() {
 }
 
 function getAgentDir() {
-  // In dev the parent project root acts as the Hermes agent checkout.
-  // When packaged, hermes-webui ships standalone — set HERMES_WEBUI_AGENT_DIR
-  // to the same dir so config.py's discovery doesn't fall back to ~/.hermes.
+  // hermes-webui's discovery looks for `run_agent.py` in the directory
+  // we point it at.  In dev that's the parent project root.  When
+  // packaged we ship a vendored agent tree under resources/seed/hermes-agent
+  // (built by scripts/build-seed.cjs).
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'hermes-webui');
+    return path.join(process.resourcesPath, 'seed', 'hermes-agent');
   }
   return getRepoRoot();
+}
+
+function getVendoredPyDepsDir() {
+  // Vendored pip dependencies live next to the agent source.  Returns
+  // null in dev — there we let the developer's own Python env supply
+  // the agent's dependencies.
+  if (app.isPackaged) {
+    const p = path.join(process.resourcesPath, 'seed', 'python-deps');
+    return fs.existsSync(p) ? p : null;
+  }
+  return null;
 }
 
 function getStateDir() {
@@ -201,6 +213,19 @@ function startPythonServer(port) {
   const stateDir = getStateDir();
   fs.mkdirSync(stateDir, { recursive: true });
 
+  // Build a PYTHONPATH that prepends the vendored agent + deps when
+  // packaged, so `from run_agent import AIAgent` resolves against the
+  // shipped source tree and bundled dependency wheels — the user's
+  // system Python doesn't need to have the agent or its 14+ deps
+  // installed system-wide.
+  const agentDir = getAgentDir();
+  const pyDepsDir = getVendoredPyDepsDir();
+  const pathSep = process.platform === 'win32' ? ';' : ':';
+  const pyPathParts = [];
+  if (app.isPackaged) pyPathParts.push(agentDir);
+  if (pyDepsDir) pyPathParts.push(pyDepsDir);
+  if (process.env.PYTHONPATH) pyPathParts.push(process.env.PYTHONPATH);
+
   // Seed-supplied env (HERMES_HOME + decrypted API keys) takes precedence
   // over the user's shell env so a stale OPENAI_API_KEY in their PATH
   // can't shadow the bundled one.  Webui-specific overrides come last
@@ -211,14 +236,17 @@ function startPythonServer(port) {
     HERMES_WEBUI_HOST: HOST,
     HERMES_WEBUI_PORT: String(port),
     HERMES_WEBUI_STATE_DIR: stateDir,
-    HERMES_WEBUI_AGENT_DIR: getAgentDir(),
+    HERMES_WEBUI_AGENT_DIR: agentDir,
     PYTHONIOENCODING: 'utf-8',
     PYTHONUNBUFFERED: '1',
+    ...(pyPathParts.length ? { PYTHONPATH: pyPathParts.join(pathSep) } : {}),
   };
 
   console.log(`[lingtan] python      = ${python}`);
   console.log(`[lingtan] cwd         = ${webuiDir}`);
   console.log(`[lingtan] port        = ${port}`);
+  console.log(`[lingtan] agent dir   = ${agentDir}`);
+  if (pyDepsDir) console.log(`[lingtan] py-deps     = ${pyDepsDir}`);
   if (seed) {
     console.log(`[lingtan] HERMES_HOME = ${seed.hermesHome}`);
     console.log(`[lingtan] bundled keys = ${seed.secretCount}`);

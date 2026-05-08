@@ -72,8 +72,8 @@ self-contained installer, point `LINGTAN_PYTHON` at a PyInstaller-frozen
 
 ## Bundled "zero-config" install (security-sensitive)
 
-`npm run seed` reads your local `~/.hermes/` and produces a
-`seed/` folder containing:
+`npm run seed` reads your local `~/.hermes/` (and the repo root) and
+produces a `seed/` folder containing:
 
 - `seed/secrets.enc` — AES-256-GCM encrypted bundle of your `~/.hermes/.env`.
   Decrypted at runtime in `main.js` (`lib/seed-runtime.cjs`) and **only** injected as
@@ -81,8 +81,24 @@ self-contained installer, point `LINGTAN_PYTHON` at a PyInstaller-frozen
   on the end-user's machine.
 - `seed/hermes-home/config.yaml` — non-secret config copied verbatim
   from `~/.hermes/config.yaml`.  Seeded into
-  `%APPDATA%\Lingtan Assistant\hermes-home\` on first launch (strategy A:
+  `%APPDATA%\lingtan-assistant\hermes-home\` on first launch (strategy A:
   preserves user edits across launches).
+- `seed/hermes-agent/` — vendored copy of the agent source tree
+  (`run_agent.py` + `agent/` + `tools/` + `hermes_cli/` + `providers/` +
+  `cron/` + `acp_adapter/` + `skills/` + the top-level helper modules).
+  This is what `from run_agent import AIAgent` resolves against in the
+  packaged build, so the end-user's machine does not need the
+  hermes-agent repo or `pip install -e .`.  ~18 MB.
+- `seed/python-deps/` — vendored Python dependencies installed via
+  `pip install --target` against a curated subset of the agent's
+  `pyproject.toml` (openai, anthropic, httpx, pydantic, jinja2,
+  prompt_toolkit, croniter, etc.).  Cached across builds — bump
+  `markerVersion` in `scripts/build-seed.cjs` to force a rebuild.
+  ~40 MB.
+
+main.js prepends both vendored dirs to `PYTHONPATH` when spawning
+Python so the user's system interpreter doesn't need any of the
+agent's runtime dependencies installed.
 
 `npm run dist` automatically runs `npm run seed` first (`predist` hook),
 so every release captures the *current* state of your local Hermes

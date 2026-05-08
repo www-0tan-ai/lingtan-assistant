@@ -215,7 +215,9 @@ async function createWindow() {
   }
 
   const { port, token } = meta;
-  const url = `http://127.0.0.1:${port}/?token=${encodeURIComponent(token)}`;
+  /* Always boot through login.html — the page bounces straight to /index.html
+   * when a session token (or local-only flag) is already in localStorage. */
+  const url = `http://127.0.0.1:${port}/login.html?token=${encodeURIComponent(token)}`;
 
   try {
     await probeHttpRetry(url);

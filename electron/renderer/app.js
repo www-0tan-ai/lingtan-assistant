@@ -22,6 +22,14 @@
     throw new Error("missing token");
   }
 
+  /* Auth gate: when neither a cloud session nor explicit local-only mode is
+   * present, send the user to the login screen first. */
+  const auth = window.zcAuth;
+  if (auth && !auth.isAuthed()) {
+    auth.navigate("/login.html");
+    return;
+  }
+
   const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${wsProto}//${location.host}/api/ws?token=${encodeURIComponent(token)}`;
 
@@ -1606,6 +1614,81 @@ ${en ? `<button type="button" class="wb-btn-xs" data-pl-act="disable" data-pl-na
 
   gw.onEvent = onGatewayEvent;
 
+  /* —— Userbar (auth-aware): name, cloud-sync pill, push, logout —— */
+  function refreshUserbar() {
+    const a = window.zcAuth;
+    if (!a) return;
+    const nameEl = document.getElementById("userbar-name");
+    const avatarEl = document.getElementById("userbar-avatar");
+    const modePill = document.getElementById("userbar-mode");
+    const modeLabel = document.getElementById("userbar-mode-label");
+    const syncBtn = document.getElementById("userbar-sync");
+    if (!nameEl || !avatarEl || !modePill || !modeLabel || !syncBtn) return;
+    const email = a.getUserEmail() || "本机用户";
+    const localOnly = a.isLocalOnly();
+    const hasToken = Boolean(a.getAccessToken());
+    nameEl.textContent = email;
+    avatarEl.textContent = (email[0] || "本").toUpperCase();
+    if (hasToken && a.getApiBase()) {
+      modePill.classList.add("online");
+      modePill.classList.remove("offline");
+      modeLabel.textContent = "云端已连接";
+      syncBtn.hidden = false;
+    } else {
+      modePill.classList.add("offline");
+      modePill.classList.remove("online");
+      modeLabel.textContent = localOnly ? "本机模式" : "未登录";
+      syncBtn.hidden = true;
+    }
+  }
+
+  document.getElementById("userbar-logout")?.addEventListener("click", async () => {
+    const a = window.zcAuth;
+    if (!a) return;
+    try {
+      await a.logout();
+    } catch {
+      a.clearAll();
+    }
+    a.navigate("/login.html");
+  });
+
+  document.getElementById("userbar-sync")?.addEventListener("click", async () => {
+    const a = window.zcAuth;
+    if (!a || !a.getAccessToken() || !a.getApiBase()) {
+      bubble("system", "未登录或未配置服务端，无法同步");
+      return;
+    }
+    bubble("system", "正在同步本机会话至云端…");
+    try {
+      const sample = sessionId ? { hermes_session_id: sessionId } : {};
+      const out = await a.apiFetch("/v1/sync/push", {
+        method: "POST",
+        retryAuthOn401: true,
+        body: {
+          events: [
+            {
+              event_id: `evt-${Date.now()}`,
+              object_type: "desktop_session_ping",
+              object_id: `desk-${Date.now()}`,
+              op: "upsert",
+              payload: { source: "0tan-electron", ...sample },
+              occurred_at: Math.floor(Date.now() / 1000),
+            },
+          ],
+        },
+      });
+      const n = (out && out.accepted_event_ids && out.accepted_event_ids.length) || 0;
+      bubble("system", `同步上行完成 (${n} 条)`);
+    } catch (e) {
+      bubble("system", `同步失败：${e?.message || e}`);
+    }
+  });
+
+  refreshUserbar();
+  window.addEventListener("focus", refreshUserbar);
+
+  /* —— Boot —— */
   (async () => {
     try {
       await gw.connect();
@@ -1616,6 +1699,7 @@ ${en ? `<button type="button" class="wb-btn-xs" data-pl-act="disable" data-pl-na
       await loadRoster();
       await loadExplorePlugins();
       await loadCronJobs();
+      refreshUserbar();
     } catch (e) {
       setConn(false, "未连接");
       bubble("system", String(e.message || e));

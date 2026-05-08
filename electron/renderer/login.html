@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>0tan · 登录</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/theme-zerocarbon.css" />
+    <link rel="stylesheet" href="/login.css" />
+  </head>
+  <body>
+    <main class="zc-login-shell">
+      <!-- Aurora orbs -->
+      <div class="zc-orb zc-orb-tl" aria-hidden="true"></div>
+      <div class="zc-orb zc-orb-br" aria-hidden="true"></div>
+      <div class="zc-grid-bg" aria-hidden="true"></div>
+
+      <header class="zc-login-topbar">
+        <div class="zc-brand">
+          <span class="zc-brand-mark"></span>
+          <span class="zc-brand-name">0tan · 灵碳助手</span>
+        </div>
+        <div class="zc-status-pill">
+          <span class="zc-status-dot"></span>
+          <span class="zc-mono">edge · cloud · synced</span>
+        </div>
+      </header>
+
+      <section class="zc-login-grid">
+        <!-- Pitch -->
+        <div class="zc-pitch">
+          <div class="zc-tag">
+            <span class="zc-spark">✦</span> v1.0 · public preview
+          </div>
+          <h1 class="zc-hero">
+            把每一个想法,<br />
+            <span class="text-gradient">落到现实。</span>
+          </h1>
+          <p class="zc-lede">
+            灵碳助手是端云一体 AI 助手 — 云端推理、本地执行,数据自主、能耗更低。
+          </p>
+          <div class="zc-feat-grid">
+            <div class="glass zc-feat">
+              <div class="zc-feat-ico">☁</div>
+              <p class="zc-feat-title">云端大脑</p>
+              <p class="zc-feat-sub">前沿模型,实时同步</p>
+            </div>
+            <div class="glass zc-feat">
+              <div class="zc-feat-ico">▤</div>
+              <p class="zc-feat-title">本地执行</p>
+              <p class="zc-feat-sub">隐私优先,零碳低耗</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Login card -->
+        <div class="zc-login-col">
+          <div class="zc-mascot anim-float" aria-hidden="true">
+            <div class="zc-mascot-glow"></div>
+            <div class="zc-mascot-emoji">🤖</div>
+          </div>
+
+          <div class="glass zc-login-card">
+            <div class="zc-login-corner">/// auth</div>
+            <h2 class="zc-login-h2">欢迎回来</h2>
+            <p class="zc-login-sub">登录后即可解锁端云协同工作流。</p>
+
+            <form id="login-form" class="zc-login-form" autocomplete="on">
+              <input
+                type="email"
+                id="login-email"
+                class="zc-login-input"
+                required
+                placeholder="your@email.com"
+                autocomplete="email"
+              />
+              <input
+                type="password"
+                id="login-password"
+                class="zc-login-input"
+                required
+                placeholder="••••••••"
+                autocomplete="current-password"
+              />
+              <p id="login-error" class="zc-login-error" hidden></p>
+              <p id="login-info" class="zc-login-info" hidden></p>
+              <button id="login-submit" type="submit" class="zc-login-primary">
+                <span class="zc-login-label">进入灵碳助手 →</span>
+                <span class="zc-login-spin" hidden></span>
+              </button>
+            </form>
+
+            <div class="zc-or-row">
+              <span class="zc-or-line"></span>
+              <span class="zc-mono">or</span>
+              <span class="zc-or-line"></span>
+            </div>
+
+            <div class="zc-alt-grid">
+              <button type="button" id="btn-register" class="zc-alt-btn">注册账号</button>
+              <button type="button" id="btn-skip" class="zc-alt-btn zc-alt-skip">
+                本机使用（跳过登录）
+              </button>
+            </div>
+
+            <details class="zc-advanced">
+              <summary>高级 · 服务端地址</summary>
+              <p class="zc-mono zc-advanced-hint">
+                留空使用本机模式（仅 tui_gateway，云端同步不可用）。
+              </p>
+              <div class="zc-api-row">
+                <input
+                  type="text"
+                  id="api-base"
+                  class="zc-login-input"
+                  placeholder="https://your-hermes-host"
+                  spellcheck="false"
+                />
+                <button type="button" id="btn-save-api-base" class="zc-alt-btn">保存</button>
+              </div>
+            </details>
+
+            <p class="zc-login-foot">
+              继续即代表同意
+              <a class="zc-link" href="#">服务条款</a>
+              与
+              <a class="zc-link" href="#">隐私政策</a>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <footer class="zc-login-footer">
+        © 2026 灵碳助手 · 端云一体 · low-carbon AI
+      </footer>
+    </main>
+
+    <script src="/login.js"></script>
+  </body>
+</html>

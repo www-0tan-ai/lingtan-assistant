@@ -51,6 +51,21 @@ def _build_app(static_dir: Path, token: str) -> FastAPI:
 
         await handle_ws(ws)
 
+    @app.get("/api/desktop-config")
+    async def desktop_config() -> dict:
+        """Surface bootstrap config (API_BASE, app metadata) to the renderer.
+
+        ``HERMES_DESKTOP_API_BASE`` lets a bundled build pre-populate the cloud
+        endpoint shown on the login screen so end-users don't have to know the
+        URL. Empty value keeps the renderer in local-only mode.
+        """
+        api_base = (os.environ.get("HERMES_DESKTOP_API_BASE") or "").strip().rstrip("/")
+        return {
+            "api_base_default": api_base,
+            "app_name": "0tan",
+            "version": os.environ.get("HERMES_DESKTOP_VERSION", "0.1.0"),
+        }
+
     app.mount(
         "/",
         StaticFiles(directory=str(static_dir), html=True),

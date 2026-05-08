@@ -6,6 +6,8 @@
     <meta name="app-version" content="0.1.0" />
     <title>0tan</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/theme-zerocarbon.css" />
+    <script src="/auth.js"></script>
   </head>
   <body>
     <div class="wb-app">
@@ -85,9 +87,32 @@
         </div>
 
         <div class="wb-userbar">
-          <div class="wb-user-avatar" aria-hidden="true">W</div>
-          <span class="wb-user-name">用户</span>
-          <span class="wb-user-chev" aria-hidden="true">›</span>
+          <div id="userbar-avatar" class="wb-user-avatar" aria-hidden="true">本</div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+            <span id="userbar-name" class="wb-user-name" style="line-height:1.2">本机用户</span>
+            <span id="userbar-mode" class="zc-cloud-pill offline" title="云端同步状态">
+              <span class="zc-dot"></span><span id="userbar-mode-label">本机模式</span>
+            </span>
+          </div>
+          <button
+            type="button"
+            id="userbar-sync"
+            class="zc-icon-btn"
+            title="同步上行 (push) — 需登录"
+            aria-label="同步上行"
+            hidden
+          >
+            ⇅
+          </button>
+          <button
+            type="button"
+            id="userbar-logout"
+            class="zc-icon-btn"
+            title="登出 / 切换账号"
+            aria-label="登出"
+          >
+            ⏏
+          </button>
         </div>
 
         <span id="conn-pill" class="wb-conn-pill hidden" aria-live="polite"></span>

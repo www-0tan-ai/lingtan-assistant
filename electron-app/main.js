@@ -16,6 +16,7 @@ const fs = require('fs');
 const net = require('net');
 const http = require('http');
 const os = require('os');
+const { loadSeed } = require('./lib/seed-runtime.cjs');
 
 const IS_DEV = process.env.LINGTAN_DEV === '1' || !app.isPackaged;
 const HOST = '127.0.0.1';
@@ -26,6 +27,11 @@ let splashWindow = null;
 let pyProc = null;
 let pyPort = DEFAULT_PORT;
 let isQuitting = false;
+
+// Populated in app.whenReady() once Electron has settled enough to
+// resolve userData.  Holds:
+//   { extraEnv, settingsPasswordHash, hermesHome, secretCount }
+let seed = null;
 
 // ─────────────────────────────────────────────────────────────────────
 // Path helpers — work in both dev and packaged (asar + extraResources).
@@ -195,8 +201,13 @@ function startPythonServer(port) {
   const stateDir = getStateDir();
   fs.mkdirSync(stateDir, { recursive: true });
 
+  // Seed-supplied env (HERMES_HOME + decrypted API keys) takes precedence
+  // over the user's shell env so a stale OPENAI_API_KEY in their PATH
+  // can't shadow the bundled one.  Webui-specific overrides come last
+  // because they're per-launch values we computed just now.
   const env = {
     ...process.env,
+    ...(seed ? seed.extraEnv : {}),
     HERMES_WEBUI_HOST: HOST,
     HERMES_WEBUI_PORT: String(port),
     HERMES_WEBUI_STATE_DIR: stateDir,
@@ -205,9 +216,13 @@ function startPythonServer(port) {
     PYTHONUNBUFFERED: '1',
   };
 
-  console.log(`[lingtan] python = ${python}`);
-  console.log(`[lingtan] cwd    = ${webuiDir}`);
-  console.log(`[lingtan] port   = ${port}`);
+  console.log(`[lingtan] python      = ${python}`);
+  console.log(`[lingtan] cwd         = ${webuiDir}`);
+  console.log(`[lingtan] port        = ${port}`);
+  if (seed) {
+    console.log(`[lingtan] HERMES_HOME = ${seed.hermesHome}`);
+    console.log(`[lingtan] bundled keys = ${seed.secretCount}`);
+  }
 
   const proc = spawn(python, ['server.py'], {
     cwd: webuiDir,
@@ -340,11 +355,37 @@ function createMainWindow(url) {
     if (IS_DEV) mainWindow.webContents.openDevTools({ mode: 'detach' });
   });
 
+  // Inject the settings-page gate every time the renderer finishes a
+  // navigation.  We re-inject on every did-finish-load so reloads /
+  // route changes inside the SPA can't bypass the lock.
+  mainWindow.webContents.on('did-finish-load', () => {
+    injectSettingsGate(mainWindow.webContents);
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 
   mainWindow.loadURL(url);
+}
+
+let _gateScriptCache = null;
+function _readGateScript() {
+  if (_gateScriptCache) return _gateScriptCache;
+  const p = path.join(__dirname, 'lib', 'settings-gate.js');
+  _gateScriptCache = fs.readFileSync(p, 'utf8');
+  return _gateScriptCache;
+}
+
+function injectSettingsGate(webContents) {
+  const hash = (seed && seed.settingsPasswordHash) || null;
+  if (!hash) return; // no password configured — skip gating entirely
+  const init =
+    `;(function(){window.__lingtanGate=${JSON.stringify({ settingsPasswordHash: hash })};})();`;
+  const body = _readGateScript();
+  webContents
+    .executeJavaScript(init + '\n' + body, true)
+    .catch((e) => console.warn('[lingtan] settings-gate inject failed:', e.message));
 }
 
 function buildMenu() {
@@ -421,6 +462,15 @@ if (!gotLock) {
 }
 
 app.whenReady().then(async () => {
+  // Decrypt the bundled secrets and seed HERMES_HOME before anything
+  // touches the network — this defines the env block we hand to Python.
+  try {
+    seed = loadSeed(app);
+  } catch (e) {
+    console.error('[lingtan] seed load failed:', e);
+    seed = null;
+  }
+
   buildMenu();
   createSplash();
 

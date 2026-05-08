@@ -2,3 +2,8 @@ node_modules/
 dist/
 out/
 *.log
+
+# Build-time seed bundle — generated from the developer's local
+# ~/.hermes/.env by `npm run seed`.  Contains AES-encrypted real API
+# keys — must NEVER land in git.
+seed/

@@ -1449,13 +1449,46 @@ ${en ? `<button type="button" class="wb-btn-xs" data-pl-act="disable" data-pl-na
     const b = document.createElement("button");
     b.type = "button";
     b.textContent = q;
-    b.onclick = () => sendMessage(q);
+    b.onclick = () => {
+      if (isCloudMode()) {
+        cloudChat.send(q).catch((e) => bubble("system", String((e && e.message) || e)));
+      } else {
+        sendMessage(q);
+      }
+    };
     quickPills.appendChild(b);
   });
 
-  btnSend.onclick = () => sendMessage(input.value);
-  btnStop.onclick = () => stopTurn();
+  function handleSend() {
+    const t = input.value;
+    input.value = "";
+    if (isCloudMode()) {
+      cloudChat.send(t).catch((e) => bubble("system", String((e && e.message) || e)));
+    } else {
+      sendMessage(t);
+    }
+  }
+  function handleNew() {
+    if (isCloudMode()) {
+      cloudChat.newThread();
+    } else {
+      newSession().catch((e) => bubble("system", String(e.message || e)));
+    }
+  }
+  btnSend.onclick = () => handleSend();
+  btnStop.onclick = () => {
+    if (isCloudMode()) {
+      // chat completion is non-streaming; nothing to interrupt server-side yet
+      btnStop.disabled = true;
+    } else {
+      stopTurn();
+    }
+  };
   btnRefresh.onclick = () => {
+    if (isCloudMode()) {
+      cloudChat.renderHistory();
+      return;
+    }
     refreshSidebars().catch((e) => bubble("system", String(e.message || e)));
     loadSessionHistory().catch((e) => bubble("system", String(e.message || e)));
     loadRoster().catch(() => {});
@@ -1464,14 +1497,17 @@ ${en ? `<button type="button" class="wb-btn-xs" data-pl-act="disable" data-pl-na
   };
 
   if (btnChatPlus) {
-    btnChatPlus.onclick = () => {
-      newSession().catch((e) => bubble("system", String(e.message || e)));
-    };
+    btnChatPlus.onclick = () => handleNew();
   }
 
   sessionHistoryList.addEventListener("click", (e) => {
     const row = e.target.closest(".wb-history-item");
     if (!row) return;
+    const threadId = row.getAttribute("data-thread-id");
+    if (threadId && isCloudMode()) {
+      cloudChat.switchTo(threadId);
+      return;
+    }
     const id = row.getAttribute("data-db-id");
     if (id) resumeFromHistory(id).catch(() => {});
   });
@@ -1514,13 +1550,11 @@ ${en ? `<button type="button" class="wb-btn-xs" data-pl-act="disable" data-pl-na
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      sendMessage(input.value);
+      handleSend();
     }
   });
 
-  btnNew.onclick = () => {
-    newSession().catch((e) => bubble("system", String(e.message || e)));
-  };
+  btnNew.onclick = () => handleNew();
 
   if (navLibraryToggle && navLibrarySub) {
     navLibraryToggle.addEventListener("click", (ev) => {
@@ -1614,6 +1648,267 @@ ${en ? `<button type="button" class="wb-btn-xs" data-pl-act="disable" data-pl-na
 
   gw.onEvent = onGatewayEvent;
 
+  /* ==========================================================================
+   * CloudChat — HTTP-only chat path for users signed in to the cloud.
+   *
+   * Goes through the local sidecar's /api/cloud/v1/chat/completions reverse
+   * proxy (which in turn talks to api_server.py at HERMES_DESKTOP_API_BASE),
+   * so the user's chat works even without a local Hermes / Ollama install.
+   *
+   * Threads are persisted to localStorage and the X-Hermes-Session-Id header
+   * keeps a stable conversation thread alive on the server.
+   * ========================================================================= */
+  const LS_THREADS = "zc_threads_v1";
+  const LS_ACTIVE_THREAD = "zc_active_thread_v1";
+
+  const cloudChat = {
+    /** @type {Array<{id:string,title:string,hermesSessionId:string,messages:Array<{role:string,content:string}>,updatedAt:number}>} */
+    threads: [],
+    /** @type {string|null} */
+    activeId: null,
+
+    _genThreadId() {
+      return `th_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    },
+    _genHermesSid() {
+      return `desk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    },
+    _newThread(sid) {
+      return {
+        id: this._genThreadId(),
+        title: "新对话",
+        hermesSessionId: sid || this._genHermesSid(),
+        messages: [],
+        updatedAt: Date.now(),
+      };
+    },
+    _flatten(c) {
+      if (typeof c === "string") return c;
+      if (Array.isArray(c)) {
+        return c
+          .map((p) => (typeof p === "string" ? p : (p && (p.text || p.input_text)) || ""))
+          .filter(Boolean)
+          .join("\n");
+      }
+      return String(c == null ? "" : c);
+    },
+    _persist() {
+      try {
+        localStorage.setItem(LS_THREADS, JSON.stringify(this.threads));
+        if (this.activeId) localStorage.setItem(LS_ACTIVE_THREAD, this.activeId);
+      } catch (_) {
+        /* ignore quota errors */
+      }
+    },
+    _restore() {
+      try {
+        const raw = localStorage.getItem(LS_THREADS);
+        if (raw) {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr)) this.threads = arr;
+        }
+      } catch (_) {
+        this.threads = [];
+      }
+      const want = localStorage.getItem(LS_ACTIVE_THREAD);
+      if (want && this.threads.find((t) => t.id === want)) {
+        this.activeId = want;
+      } else if (this.threads.length) {
+        this.activeId = this.threads[0].id;
+      }
+    },
+    active() {
+      return this.threads.find((t) => t.id === this.activeId) || null;
+    },
+
+    async init() {
+      this._restore();
+
+      if (!this.threads.length) {
+        // First launch: try to seed from the cloud's default lingtan session.
+        let sid = "";
+        try {
+          const r = await window.zcAuth.apiFetch(
+            "/v1/assistant/chat-session/default",
+            { retryAuthOn401: true },
+          );
+          sid = String((r && r.session_id) || "").trim();
+        } catch (_) {
+          /* offline / no-account → just start with a synthetic id */
+        }
+        const t = this._newThread(sid);
+        if (sid) {
+          try {
+            const c = await window.zcAuth.apiFetch(
+              `/v1/assistant/conversation?session_id=${encodeURIComponent(sid)}`,
+              { retryAuthOn401: true },
+            );
+            const msgs = (c.messages || [])
+              .filter((m) => m && (m.role === "user" || m.role === "assistant"))
+              .map((m) => ({ role: m.role, content: this._flatten(m.content) }))
+              .filter((m) => m.content);
+            if (msgs.length) {
+              t.messages = msgs;
+              t.title = msgs.find((m) => m.role === "user")?.content?.slice(0, 32) || "主会话";
+            }
+          } catch (_) {
+            /* fall through */
+          }
+        }
+        this.threads = [t];
+        this.activeId = t.id;
+        this._persist();
+      }
+
+      this.renderTranscript();
+      this.renderHistory();
+    },
+
+    renderTranscript() {
+      transcript.innerHTML = "";
+      const t = this.active();
+      if (!t) return;
+      setChatTitle(t.title || "新对话");
+      for (const m of t.messages) {
+        if (m.role === "user" || m.role === "assistant") bubble(m.role, m.content);
+      }
+      transcript.scrollTop = transcript.scrollHeight;
+    },
+
+    renderHistory() {
+      if (!sessionHistoryList) return;
+      const sorted = [...this.threads].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      sessionHistoryList.innerHTML = "";
+      for (const t of sorted) {
+        const el = document.createElement("button");
+        el.type = "button";
+        el.className = `wb-history-item${t.id === this.activeId ? " active" : ""}`;
+        el.setAttribute("data-thread-id", t.id);
+        const dt = new Date(t.updatedAt || Date.now());
+        const time = dt.toLocaleString("zh-CN", {
+          month: "numeric",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        const title = (t.title || "新对话").slice(0, 60);
+        el.innerHTML = `
+          <div class="wb-hi-ico">●</div>
+          <div class="wb-history-body">
+            <div class="wb-history-title">${escapeHtml(title)}</div>
+            <div class="wb-history-meta">
+              <span class="wb-history-time">${escapeHtml(time)}</span>
+              <span class="wb-history-sub">${(t.messages || []).length} 条</span>
+            </div>
+          </div>
+        `;
+        sessionHistoryList.appendChild(el);
+      }
+    },
+
+    switchTo(threadId) {
+      const t = this.threads.find((x) => x.id === threadId);
+      if (!t) return;
+      this.activeId = t.id;
+      this._persist();
+      this.renderTranscript();
+      this.renderHistory();
+      setView("chat");
+    },
+
+    newThread() {
+      const t = this._newThread();
+      this.threads.unshift(t);
+      this.activeId = t.id;
+      this._persist();
+      this.renderTranscript();
+      this.renderHistory();
+      setView("chat");
+    },
+
+    async send(text) {
+      const t = this.active();
+      const content = String(text || "").trim();
+      if (!content || !t || turnBusy) return;
+
+      const a = window.zcAuth;
+      const apiBase = a && a.getApiBase();
+      const tk = a && a.getAccessToken();
+      if (!apiBase || !tk) {
+        bubble("system", "未登录或 API 地址未配置，请重新登录。");
+        return;
+      }
+
+      t.messages.push({ role: "user", content });
+      if (!t.title || t.title === "新对话") t.title = content.slice(0, 32);
+      t.updatedAt = Date.now();
+      this._persist();
+      bubble("user", content);
+      setChatTitle(t.title);
+      this.renderHistory();
+
+      turnBusy = true;
+      btnSend.disabled = true;
+      btnStop.disabled = false;
+      setTaskStatus("正在生成…");
+
+      const wsTok = new URLSearchParams(window.location.search).get("token") || "";
+      const url =
+        `/api/cloud/v1/chat/completions?api_base=${encodeURIComponent(apiBase)}` +
+        (wsTok ? `&token=${encodeURIComponent(wsTok)}` : "");
+      const headers = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tk}`,
+      };
+      if (t.hermesSessionId) headers["X-Hermes-Session-Id"] = t.hermesSessionId;
+
+      try {
+        const apiMessages = t.messages.map((m) => ({ role: m.role, content: m.content }));
+        const resp = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            model: "assistant-core",
+            stream: false,
+            messages: apiMessages,
+          }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          throw new Error((data && data.error && data.error.message) || `HTTP ${resp.status}`);
+        }
+        const reply =
+          (data &&
+            data.choices &&
+            data.choices[0] &&
+            data.choices[0].message &&
+            data.choices[0].message.content) ||
+          "（无回复）";
+        const hdrSid = resp.headers.get("X-Hermes-Session-Id");
+        if (hdrSid && hdrSid.trim()) t.hermesSessionId = hdrSid.trim();
+        const replyText = String(reply);
+        t.messages.push({ role: "assistant", content: replyText });
+        t.updatedAt = Date.now();
+        this._persist();
+        bubble("assistant", replyText);
+        this.renderHistory();
+      } catch (e) {
+        bubble("system", `请求失败：${(e && e.message) || e}`);
+      } finally {
+        turnBusy = false;
+        btnSend.disabled = false;
+        btnStop.disabled = true;
+        setTaskStatus("就绪");
+        transcript.scrollTop = transcript.scrollHeight;
+      }
+    },
+  };
+
+  function isCloudMode() {
+    const a = window.zcAuth;
+    return Boolean(a && a.getAccessToken() && a.getApiBase());
+  }
+
   /* —— Userbar (auth-aware): name, cloud-sync pill, push, logout —— */
   function refreshUserbar() {
     const a = window.zcAuth;
@@ -1690,6 +1985,17 @@ ${en ? `<button type="button" class="wb-btn-xs" data-pl-act="disable" data-pl-na
 
   /* —— Boot —— */
   (async () => {
+    refreshUserbar();
+    if (isCloudMode()) {
+      try {
+        setConn(true, "已登录");
+        await cloudChat.init();
+      } catch (e) {
+        setConn(false, "未连接");
+        bubble("system", String((e && e.message) || e));
+      }
+      return;
+    }
     try {
       await gw.connect();
       setConn(true, "已连接");

@@ -44,33 +44,7 @@
 
         <nav class="wb-nav" id="nav-menu" aria-label="功能">
           <button type="button" class="wb-nav-item active" data-view="chat">
-            <span class="wb-nav-ico" aria-hidden="true">⚡</span><span>Claw</span>
-          </button>
-          <button type="button" class="wb-nav-item" data-view="experts">
-            <span class="wb-nav-ico" aria-hidden="true">🎓</span><span>专家</span>
-          </button>
-          <button type="button" class="wb-nav-item" data-view="skills">
-            <span class="wb-nav-ico" aria-hidden="true">✨</span><span>技能</span>
-          </button>
-          <button type="button" class="wb-nav-item" data-view="explore">
-            <span class="wb-nav-ico" aria-hidden="true">🧭</span><span>探索</span>
-          </button>
-          <button type="button" class="wb-nav-item" data-view="connectors">
-            <span class="wb-nav-ico" aria-hidden="true">🔌</span><span>连接器</span>
-          </button>
-          <div class="wb-nav-group">
-            <button type="button" class="wb-nav-item wb-nav-parent" id="nav-library-toggle" aria-expanded="false">
-              <span class="wb-nav-ico" aria-hidden="true">📚</span><span>资料库</span>
-              <span class="wb-nav-chev">▾</span>
-            </button>
-            <div class="wb-nav-sub" id="nav-library-sub" hidden>
-              <button type="button" class="wb-nav-item wb-nav-subitem" data-view="library">
-                <span class="wb-nav-ico sm">📄</span>文档
-              </button>
-            </div>
-          </div>
-          <button type="button" class="wb-nav-item" data-view="automation">
-            <span class="wb-nav-ico" aria-hidden="true">⏱</span><span>自动化</span>
+            <span class="wb-nav-ico" aria-hidden="true">⚡</span><span>对话</span>
           </button>
         </nav>
 
@@ -123,15 +97,10 @@
         <section id="view-chat" class="wb-view wb-view-active" aria-label="任务">
           <header class="wb-chat-head">
             <div class="wb-chat-head-left">
-              <button type="button" class="wb-icon-sq ghost" aria-label="文档">📄</button>
-              <button type="button" class="wb-icon-sq ghost" id="btn-chat-plus" title="新建任务" aria-label="新建">+</button>
+              <button type="button" class="wb-icon-sq ghost" id="btn-chat-plus" title="新建对话" aria-label="新建">+</button>
             </div>
-            <h1 class="wb-chat-title" id="chat-task-title">新任务</h1>
-            <div class="wb-chat-head-right">
-              <button type="button" class="wb-icon-sq ghost" aria-label="搜索">🔍</button>
-              <button type="button" class="wb-icon-sq ghost" aria-label="菜单">☰</button>
-              <button type="button" class="wb-icon-sq ghost" aria-label="布局">⛶</button>
-            </div>
+            <h1 class="wb-chat-title" id="chat-task-title">新对话</h1>
+            <div class="wb-chat-head-right"></div>
           </header>
 
           <div class="wb-chat-body">
@@ -142,38 +111,21 @@
 
             <div class="wb-composer-outer">
               <div class="wb-composer-bar">
-                <span class="wb-composer-dd">任务列表 <span class="wb-dd-tag">1/1</span></span>
                 <span class="wb-composer-status muted" id="task-status-line">就绪</span>
               </div>
               <div class="wb-composer-card">
                 <div class="wb-composer-input-row">
-                  <button type="button" class="wb-composer-ico" aria-label="@">@</button>
-                  <button type="button" class="wb-composer-ico" aria-label="附件">📎</button>
                   <textarea
                     id="input"
                     class="wb-composer-textarea"
                     rows="2"
                     placeholder="输入消息…"
                   ></textarea>
-                  <div class="wb-composer-mascot" title="0tan" aria-hidden="true">🤖</div>
-                </div>
-                <div class="wb-composer-toolbar">
-                  <div class="wb-toolbar-left">
-                    <button type="button" class="wb-pill-btn">Craft <span class="wb-caret">▾</span></button>
-                    <button type="button" class="wb-pill-btn"><span class="wb-spark">✦</span> Auto</button>
-                    <button type="button" class="wb-pill-btn" data-view-switch="skills">技能</button>
-                    <button type="button" class="wb-pill-btn ico" aria-label="连接器" data-view-switch="connectors">🔌</button>
-                  </div>
-                  <div class="wb-toolbar-right">
-                    <button type="button" class="wb-icon-sq" aria-label="语音">🎤</button>
-                    <button type="button" class="wb-send-fab" id="btn-send" title="发送">➤</button>
-                  </div>
+                  <button type="button" class="wb-send-fab" id="btn-send" title="发送">➤</button>
                 </div>
                 <div class="wb-composer-foot">
                   <span class="wb-disclaimer">内容由 AI 生成，请核实重要信息。</span>
-                  <div class="wb-stop-wrap">
-                    <button type="button" class="wb-btn-stop" id="btn-stop" disabled>停止</button>
-                  </div>
+                  <button type="button" class="wb-btn-stop" id="btn-stop" disabled>停止</button>
                 </div>
               </div>
             </div>

@@ -86,6 +86,10 @@
   /**
    * @param {string} path  e.g. "/v1/auth/login"
    * @param {{method?: string, body?: any, retryAuthOn401?: boolean, _retried?: boolean}} opts
+   *
+   * Always tunnels through the local sidecar (``/api/cloud/...``) so the
+   * renderer stays same-origin (the deployed api_server has no CORS headers
+   * and the browser would otherwise refuse the request as "Failed to fetch").
    */
   async function apiFetch(path, opts = {}) {
     const apiBase = getApiBase();
@@ -98,7 +102,14 @@
     const tk = getAccessToken();
     if (tk) headers.Authorization = `Bearer ${tk}`;
 
-    const url = `${apiBase}${path}`;
+    // Strip leading slash so /api/cloud/v1/auth/login etc. compose cleanly.
+    const trimmed = path.startsWith("/") ? path.slice(1) : path;
+    const params = new URLSearchParams(window.location.search);
+    const wsTok = params.get("token") || "";
+    const queryGlue = trimmed.includes("?") ? "&" : "?";
+    const apiBaseParam = `api_base=${encodeURIComponent(apiBase)}`;
+    const tokenParam = wsTok ? `&token=${encodeURIComponent(wsTok)}` : "";
+    const url = `/api/cloud/${trimmed}${queryGlue}${apiBaseParam}${tokenParam}`;
     const init = {
       method: opts.method || "GET",
       headers,

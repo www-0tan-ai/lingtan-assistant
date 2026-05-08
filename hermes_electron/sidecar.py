@@ -19,10 +19,28 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request, Response, WebSocket
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 _LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost", "", "testclient"})
+
+# Headers we never forward upstream / back to the renderer (hop-by-hop or rewritten).
+_HOP_BY_HOP = frozenset(
+    {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "host",
+        "content-length",
+        "content-encoding",
+    }
+)
 
 
 def _pick_port() -> int:
@@ -65,6 +83,92 @@ def _build_app(static_dir: Path, token: str) -> FastAPI:
             "app_name": "0tan",
             "version": os.environ.get("HERMES_DESKTOP_VERSION", "0.1.0"),
         }
+
+    @app.api_route(
+        "/api/cloud/{rest:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    )
+    async def cloud_proxy(rest: str, request: Request) -> Response:
+        """Reverse-proxy renderer requests to the configured API_BASE.
+
+        Avoids the renderer having to do cross-origin calls (the deployed
+        api_server doesn't ship CORS headers, so the browser would refuse
+        to send the request directly). The renderer reaches us on loopback
+        so this stays same-origin.
+
+        The target host is resolved at *request time* from
+        ``HERMES_DESKTOP_API_BASE`` (env) so a redeploy or env change picks up
+        immediately without restarting the sidecar. Bearer tokens & content
+        types are forwarded verbatim; hop-by-hop headers are stripped.
+        """
+        # Per-request lookup, optional `?api_base=` override (renderer may set it
+        # explicitly when the user typed a different URL on the login screen).
+        api_base = (request.query_params.get("api_base") or "").strip().rstrip("/")
+        if not api_base:
+            api_base = (os.environ.get("HERMES_DESKTOP_API_BASE") or "").strip().rstrip("/")
+        if not api_base:
+            return JSONResponse(
+                {
+                    "error": {
+                        "message": "API_BASE not configured. Set HERMES_DESKTOP_API_BASE or pass ?api_base=...",
+                        "code": "no_api_base",
+                    }
+                },
+                status_code=503,
+            )
+
+        # Build upstream URL while preserving the renderer's query string
+        # (minus our own routing-only `api_base` override).
+        kept_qs = [
+            (k, v) for k, v in request.query_params.multi_items() if k != "api_base"
+        ]
+        from urllib.parse import urlencode
+
+        suffix = ("?" + urlencode(kept_qs)) if kept_qs else ""
+        upstream = f"{api_base}/{rest}{suffix}"
+
+        fwd_headers: dict[str, str] = {}
+        for k, v in request.headers.items():
+            if k.lower() in _HOP_BY_HOP:
+                continue
+            if k.lower() == "origin":
+                # Drop the loopback Origin so upstream doesn't reject the
+                # preflight; this is server-to-server now, not browser→server.
+                continue
+            fwd_headers[k] = v
+
+        body = await request.body() if request.method not in ("GET", "HEAD") else None
+
+        try:
+            import httpx  # local import keeps the cold path cheap on startup
+
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+                upstream_resp = await client.request(
+                    request.method,
+                    upstream,
+                    headers=fwd_headers,
+                    content=body,
+                )
+        except Exception as exc:  # network / DNS / timeout
+            return JSONResponse(
+                {
+                    "error": {
+                        "message": f"Upstream proxy error: {exc.__class__.__name__}: {exc}",
+                        "code": "proxy_error",
+                    }
+                },
+                status_code=502,
+            )
+
+        out_headers = {
+            k: v for k, v in upstream_resp.headers.items() if k.lower() not in _HOP_BY_HOP
+        }
+        return Response(
+            content=upstream_resp.content,
+            status_code=upstream_resp.status_code,
+            headers=out_headers,
+            media_type=upstream_resp.headers.get("content-type"),
+        )
 
     app.mount(
         "/",

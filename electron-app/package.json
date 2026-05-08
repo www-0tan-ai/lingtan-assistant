@@ -1,0 +1,90 @@
+{
+  "name": "lingtan-assistant",
+  "version": "0.1.0",
+  "description": "Lingtan Assistant — Electron desktop wrapper for the Hermes Web UI",
+  "main": "main.js",
+  "private": true,
+  "author": "Lingtan",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env LINGTAN_DEV=1 electron .",
+    "dist": "electron-builder --win",
+    "dist:portable": "electron-builder --win portable",
+    "dist:dir": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.lingtan.assistant",
+    "productName": "Lingtan Assistant",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "splash.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../hermes-webui",
+        "to": "hermes-webui",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/.git/**",
+          "!**/.github/**",
+          "!tests/**",
+          "!docs/**",
+          "!CHANGELOG.md",
+          "!ARCHITECTURE.md",
+          "!HERMES.md",
+          "!ROADMAP.md",
+          "!SPRINTS.md",
+          "!TESTING.md",
+          "!THEMES.md",
+          "!BUGS.md",
+          "!docker*",
+          "!Dockerfile*",
+          "!ctl.sh",
+          "!start.sh"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Lingtan Assistant"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    }
+  }
+}

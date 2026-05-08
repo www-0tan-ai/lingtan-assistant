@@ -1454,3 +1454,113 @@ body {
 .wb-sidebar {
   position: relative;
 }
+
+.wb-modal-wide {
+  max-width: 520px;
+  width: 92vw;
+}
+.wb-form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 10px 0 4px;
+  color: var(--wb-text-muted, #64748b);
+}
+.wb-modal-input,
+.wb-modal-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--wb-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.wb-modal-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+.wb-form-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.wb-market-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.wb-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.wb-btn-xs {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--wb-border);
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+}
+.wb-btn-xs.primary {
+  background: var(--wb-green, #28c76f);
+  border-color: var(--wb-green-dark, #1fa75a);
+  color: #fff;
+}
+.wb-btn-xs.danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fef2f2;
+}
+.wb-conn-body {
+  flex: 1;
+  min-width: 0;
+}
+.wb-conn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.wb-ex-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.wb-cron-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.wb-plugin-install-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.wb-input-grow {
+  flex: 1;
+  min-width: 200px;
+  border: 1px solid var(--wb-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.wb-library-panel code {
+  font-size: 12px;
+  word-break: break-all;
+}
+.wb-cron-template {
+  cursor: pointer;
+}
+.wb-cron-template:hover {
+  border-color: var(--wb-green, #28c76f);
+}

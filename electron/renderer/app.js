@@ -155,6 +155,90 @@
   /** @type {any[]} */
   let lastToolsets = [];
   let expertFilter = "all";
+  /** @type {"rec"|"hub"|"bundles"} */
+  let skillsMarketTab = "rec";
+  let skillsHubTimer = null;
+  let browsePage = 1;
+
+  function closeModal() {
+    modal.classList.add("hidden");
+    modal.innerHTML = "";
+  }
+
+  function openModal(html) {
+    modal.innerHTML = html;
+    modal.classList.remove("hidden");
+    modal.querySelectorAll("[data-modal-close]").forEach((b) => {
+      b.onclick = () => closeModal();
+    });
+    modal.onclick = (ev) => {
+      if (ev.target === modal) closeModal();
+    };
+  }
+
+  async function cliExecStdout(argv) {
+    try {
+      const r = await gw.request("cli.exec", { argv, timeout: 60 });
+      if (r && r.blocked) return "";
+      return String(r.output || "").trim();
+    } catch {
+      return "";
+    }
+  }
+
+  async function saveLingtanRoster(agents) {
+    await gw.request("config.set", { key: "lingtan.roster", value: { agents } });
+    lastRosterAgents = Array.isArray(agents) ? agents : [];
+    renderExpertViews();
+    bubble("system", `已保存 ${lastRosterAgents.length} 条专家配置到 config.yaml`);
+  }
+
+  async function configureToolsets(names, action) {
+    if (!sessionId) {
+      bubble("system", "请先等待会话就绪");
+      return;
+    }
+    const arr = (names || []).filter(Boolean);
+    if (!arr.length) return;
+    try {
+      const r = await gw.request("tools.configure", {
+        session_id: sessionId,
+        action,
+        names: arr,
+      });
+      const unk = (r && r.unknown) || [];
+      if (unk.length) bubble("system", `未识别工具集：${unk.join(", ")}`);
+      if (r && r.missing_servers && r.missing_servers.length) {
+        bubble("system", `MCP 未就绪：${r.missing_servers.join(", ")}`);
+      }
+      await refreshSidebars();
+      bubble("system", (r && r.changed && r.changed.length ? `已更新：${r.changed.join(", ")}` : "工具集已同步") + "");
+    } catch (e) {
+      bubble("system", String(e.message || e));
+    }
+  }
+
+  async function runCliExec(argv, hintLabel) {
+    try {
+      const r = await gw.request("cli.exec", { argv, timeout: 300 });
+      if (r && r.blocked) {
+        bubble("system", r.hint || "CLI 被拦截");
+        return r;
+      }
+      const out = String(r.output || "").trim();
+      if (r.code !== 0) {
+        bubble("system", `${hintLabel} 退出码 ${r.code}${out ? `\n${out.slice(0, 2000)}` : ""}`);
+      } else if (out) {
+        bubble("system", `${hintLabel}\n${out.slice(0, 2000)}`);
+      } else {
+        bubble("system", `${hintLabel} 完成`);
+      }
+      return r;
+    } catch (e) {
+      bubble("system", String(e.message || e));
+      return null;
+    }
+  }
 
   function setView(name) {
     const v = VIEWS.includes(name) ? name : "chat";
@@ -211,20 +295,22 @@
     expertGroupsGrid.innerHTML = `
       <article class="wb-card-team" style="grid-column:1/-1;max-width:720px">
         <div class="wb-card-team-art">◆</div>
-        <h3 class="wb-card-team-name">0tan 委派代理组</h3>
-        <div class="wb-card-tags"><span>配置同步</span><span>子任务</span></div>
-        <p class="wb-card-desc">${escapeHtml(names || "尚未配置子代理，可在应用配置中添加 agents 列表。")}</p>
+        <h3 class="wb-card-team-name">委派子代理</h3>
+        <div class="wb-card-tags"><span>lingtan_ui.agents</span><span>delegate_task</span></div>
+        <p class="wb-card-desc">${escapeHtml(names || "尚未配置子代理，点击「新建专家」写入 config。")}</p>
         <div class="wb-card-team-foot"><span class="wb-avatars">${"●".repeat(Math.min(lastRosterAgents.length, 6)) || "—"}</span><span class="wb-use-count">${lastRosterAgents.length} 个角色</span></div>
       </article>`;
     if (!agents.length) {
       expertRosterGrid.innerHTML =
         '<div class="muted" style="grid-column:1/-1;padding:12px">当前筛选下无条目</div>';
+      expertRosterGrid.onclick = null;
       return;
     }
     const avatars = ["👤", "🎯", "📎", "🔍", "📋", "⚡"];
     expertRosterGrid.innerHTML = agents
       .map((a, idx) => {
-        const id = escapeHtml(String(a.id || ""));
+        const idRaw = String(a.id || "");
+        const id = escapeHtml(idRaw);
         const nm = escapeHtml(String(a.name || a.id || "未命名"));
         const desc = escapeHtml(String(a.description || "").slice(0, 220));
         const ts = Array.isArray(a.toolsets) ? a.toolsets : [];
@@ -233,18 +319,53 @@
           .map((t) => `<span>${escapeHtml(String(t))}</span>`)
           .join("");
         const av = avatars[idx % avatars.length];
-        const on = a.enabled !== false ? "已启用" : "未启用";
-        return `<article class="wb-card-expert">
+        const on = a.enabled !== false;
+        const onLabel = on ? "已启用" : "未启用";
+        const toggleLabel = on ? "停用" : "启用";
+        return `<article class="wb-card-expert" data-agent-id="${id}">
         <div class="wb-ex-avatar">${av}</div>
         <div class="wb-ex-body">
           <div class="wb-ex-title">${nm}</div>
           <div class="wb-card-tags">${tags || "<span>—</span>"}</div>
           <p class="wb-card-desc">${desc}</p>
-          <div class="wb-ex-foot"><span>${id}</span><span class="wb-use-count">${on}</span></div>
+          <div class="wb-ex-foot"><span>${id}</span><span class="wb-use-count">${onLabel}</span></div>
+          <div class="wb-ex-actions">
+            <button type="button" class="wb-btn-xs" data-agent-act="toggle" data-agent-id="${id}">${toggleLabel}</button>
+            <button type="button" class="wb-btn-xs danger" data-agent-act="delete" data-agent-id="${id}">删除</button>
+          </div>
         </div>
       </article>`;
       })
       .join("");
+
+    expertRosterGrid.onclick = async (ev) => {
+      const b = ev.target.closest("[data-agent-act]");
+      if (!b) return;
+      const idRaw = b.getAttribute("data-agent-id") || "";
+      const act = b.getAttribute("data-agent-act");
+      if (!idRaw) return;
+      if (act === "toggle") {
+        const next = lastRosterAgents.map((x) => {
+          if (String(x.id) !== idRaw) return { ...x };
+          const wasOn = x.enabled !== false;
+          return { ...x, enabled: !wasOn };
+        });
+        try {
+          await saveLingtanRoster(next);
+        } catch (e) {
+          bubble("system", String(e.message || e));
+        }
+      }
+      if (act === "delete") {
+        if (!confirm(`删除专家「${idRaw}」？`)) return;
+        const next = lastRosterAgents.filter((x) => String(x.id) !== idRaw);
+        try {
+          await saveLingtanRoster(next);
+        } catch (e) {
+          bubble("system", String(e.message || e));
+        }
+      }
+    };
   }
 
   function renderConnectorCards(toolsets) {
@@ -253,6 +374,7 @@
     if (!Array.isArray(toolsets) || !toolsets.length) {
       grid.innerHTML =
         '<div class="muted" style="grid-column:1/-1;padding:12px">无工具集数据（会话未就绪？）</div>';
+      grid.onclick = null;
       return;
     }
     const icons = ["📦", "🔧", "🌐", "💾", "📊", "🧠", "⚙️", "🔌", "📝", "🗂"];
@@ -266,20 +388,34 @@
         const en = ts.enabled !== false;
         const cls = en ? "wb-conn-card" : "wb-conn-card wb-conn-off";
         const safeAttr = encodeURIComponent(raw);
-        return `<article class="${cls}" data-toolset="${safeAttr}" role="button" tabindex="0">
-<span class="wb-conn-ico">${ico}</span><div><div class="wb-conn-name">${name}</div><p class="wb-conn-desc">${desc}</p>
-<p class="muted" style="margin:6px 0 0;font-size:11px">${en ? "已启用" : "未启用"} · ${cnt} 个工具</p></div>
-<button type="button" class="wb-conn-add" data-toolset="${safeAttr}" aria-label="引用">+</button></article>`;
+        const act = en ? "disable" : "enable";
+        const actLabel = en ? "关闭" : "启用";
+        return `<article class="${cls}" data-toolset="${safeAttr}">
+<span class="wb-conn-ico">${ico}</span><div class="wb-conn-body"><div class="wb-conn-name">${name}</div><p class="wb-conn-desc">${desc}</p>
+<p class="muted" style="margin:6px 0 0;font-size:11px">${en ? "已启用" : "未启用"} · ${cnt} 个工具</p>
+<div class="wb-conn-actions">
+<button type="button" class="wb-btn-xs" data-ts-act="${act}" data-toolset="${safeAttr}">${actLabel}</button>
+<button type="button" class="wb-btn-xs" data-ts-act="mention" data-toolset="${safeAttr}">引用到输入</button>
+</div></div>
+</article>`;
       })
       .join("");
     grid.onclick = (ev) => {
-      const t = ev.target.closest("[data-toolset]");
-      if (!t) return;
-      const n = decodeURIComponent(t.getAttribute("data-toolset") || "");
-      if (!n) return;
-      setView("chat");
-      input.value = `（优先使用工具集「${n}」内能力） `;
-      input.focus();
+      const b = ev.target.closest("[data-ts-act]");
+      if (b) {
+        ev.stopPropagation();
+        const n = decodeURIComponent(b.getAttribute("data-toolset") || "");
+        const act = b.getAttribute("data-ts-act");
+        if (act === "mention" && n) {
+          setView("chat");
+          input.value = `（优先使用工具集「${n}」内能力） `;
+          input.focus();
+        }
+        if ((act === "enable" || act === "disable") && n) {
+          configureToolsets([n], act).catch(() => {});
+        }
+        return;
+      }
     };
   }
 
@@ -291,21 +427,43 @@
       const pl = r.plugins || [];
       if (!pl.length) {
         el.className = "wb-market-list muted";
-        el.innerHTML = "<div class=\"muted\">未加载插件</div>";
+        el.innerHTML = "<div class=\"muted\">当前未加载任何插件目录条目</div>";
         return;
       }
       el.className = "wb-market-list";
       el.innerHTML = pl
-        .map(
-          (p) => `<div class="wb-market-row">
+        .map((p) => {
+          const rawName = String(p.name);
+          const nm = escapeHtml(rawName);
+          const en = p.enabled !== false;
+          const safeName = encodeURIComponent(rawName);
+          return `<div class="wb-market-row" data-plugin-row="${nm}">
 <span class="wb-m-ico">🔌</span>
-<div>
-<div class="wb-m-title">${escapeHtml(p.name)} <span class="muted">${p.enabled !== false ? "启用" : "停用"}</span></div>
-<div class="wb-m-desc">版本 ${escapeHtml(String(p.version))}</div>
-</div>
-</div>`,
-        )
+<div class="wb-market-row-body">
+<div class="wb-m-title">${nm} <span class="muted">${en ? "启用" : "停用"}</span> · 版本 ${escapeHtml(String(p.version))}</div>
+<div class="wb-row-actions">
+${en ? `<button type="button" class="wb-btn-xs" data-pl-act="disable" data-pl-name="${safeName}">停用</button>` : `<button type="button" class="wb-btn-xs" data-pl-act="enable" data-pl-name="${safeName}">启用</button>`}
+<button type="button" class="wb-btn-xs danger" data-pl-act="remove" data-pl-name="${safeName}">卸载</button>
+</div></div></div>`;
+        })
         .join("");
+
+      el.onclick = async (ev) => {
+        const b = ev.target.closest("[data-pl-act]");
+        if (!b) return;
+        const name = decodeURIComponent(b.getAttribute("data-pl-name") || "");
+        const act = b.getAttribute("data-pl-act");
+        if (!name) return;
+        if (act === "remove" && !confirm(`卸载插件「${name}」？`)) return;
+        const argv =
+          act === "enable"
+            ? ["plugins", "enable", name]
+            : act === "disable"
+              ? ["plugins", "disable", name]
+              : ["plugins", "remove", name];
+        await runCliExec(argv, `plugins ${act}`);
+        await loadExplorePlugins();
+      };
     } catch (e) {
       el.className = "wb-market-list muted";
       el.textContent = String(e.message || e);
@@ -325,12 +483,39 @@
       }
       grid.innerHTML = jobs
         .map((j) => {
+          const jid = escapeHtml(String(j.job_id || ""));
           const title = escapeHtml(String(j.name || j.job_id || "任务"));
           const sub = escapeHtml(String(j.prompt_preview || j.schedule || "").slice(0, 100));
           const st = escapeHtml(String(j.state || j.last_status || "—"));
-          return `<article class="wb-auto-card"><span class="wb-auto-ico">⏱</span><strong>${title}</strong><p>${sub}</p><p class="muted" style="margin-top:6px;font-size:11px">状态：${st}</p></article>`;
+          const paused = String(j.state || "").toLowerCase() === "paused" || j.enabled === false;
+          return `<article class="wb-auto-card" data-cron-job="${jid}">
+<strong>${title}</strong><p>${sub}</p>
+<p class="muted" style="margin-top:6px;font-size:11px">状态：${st} · <code>${jid}</code></p>
+<div class="wb-cron-card-actions">
+<button type="button" class="wb-btn-xs" data-cron-act="${paused ? "resume" : "pause"}" data-cron-job="${jid}">${paused ? "恢复" : "暂停"}</button>
+<button type="button" class="wb-btn-xs danger" data-cron-act="remove" data-cron-job="${jid}">删除</button>
+</div></article>`;
         })
         .join("");
+
+      grid.onclick = async (ev) => {
+        const b = ev.target.closest("[data-cron-act]");
+        if (!b) return;
+        const jid = b.getAttribute("data-cron-job") || "";
+        const act = b.getAttribute("data-cron-act");
+        if (!jid || !act) return;
+        if (act === "remove" && !confirm(`删除定时任务 ${jid}？`)) return;
+        try {
+          await gw.request("cron.manage", {
+            action: act === "remove" ? "remove" : act,
+            job_id: jid,
+          });
+          bubble("system", `定时任务 ${act} 已提交`);
+          await loadCronJobs();
+        } catch (e) {
+          bubble("system", String(e.message || e));
+        }
+      };
     } catch (e) {
       grid.innerHTML = `<div class="muted" style="grid-column:1/-1;padding:12px">${escapeHtml(
         String(e.message || e),
@@ -338,10 +523,260 @@
     }
   }
 
+  async function loadLibraryPanel() {
+    const el = document.getElementById("library-panel");
+    if (!el) return;
+    el.className = "wb-library-panel";
+    el.innerHTML = "<p class=\"muted\">加载中…</p>";
+    try {
+      const prof = await gw.request("config.get", { key: "profile" });
+      const cfgPath = await cliExecStdout(["config", "path"]);
+      const envPath = await cliExecStdout(["config", "env-path"]);
+      const home = escapeHtml(String((prof && prof.display) || ""));
+      const cfgOut = escapeHtml(cfgPath || "（未知）");
+      const envOut = escapeHtml(envPath || "（未知）");
+      el.innerHTML = `
+        <p><strong>数据目录（显示名）</strong><br/><code>${home}</code></p>
+        <p><strong>config.yaml</strong><br/><code>${cfgOut}</code></p>
+        <p><strong>.env</strong><br/><code>${envOut}</code></p>
+        <p class="muted" style="font-size:12px">在文件管理器中打开上述路径即可编辑；修改后部分项需重启侧车。</p>`;
+    } catch (e) {
+      el.innerHTML = `<p class="muted">${escapeHtml(String(e.message || e))}</p>`;
+    }
+  }
+
+  async function paintSkillsMarket() {
+    const market = document.getElementById("skills-market-list");
+    if (!market) return;
+    if (skillsMarketTab === "rec") {
+      const n = countSkills(skillsByCategory);
+      market.className = "wb-market-list";
+      market.innerHTML = `<div class="wb-market-row"><span class="wb-m-ico">✨</span><div><div class="wb-m-title">已安装技能</div>
+        <div class="wb-m-desc">共 <strong>${n}</strong> 条（见上方卡片）。切换到 SkillHub 可按关键词检索远程技能并安装；安装完成后点刷新或新开会话。</div></div></div>`;
+      return;
+    }
+    if (skillsMarketTab === "hub") {
+      const q = (skillsSearch && skillsSearch.value) || "";
+      if (!q.trim()) {
+        market.className = "wb-market-list muted";
+        market.innerHTML =
+          "<div class=\"muted\" style=\"padding:8px 0\">在顶部搜索框输入关键词，将调用侧车 <code>skills.manage search</code>。</div>";
+        return;
+      }
+      market.className = "wb-market-list";
+      market.innerHTML = "<div class=\"muted\">检索中…</div>";
+      try {
+        const r = await gw.request("skills.manage", { action: "search", query: q.trim() });
+        const rows = (r && r.results) || [];
+        if (!rows.length) {
+          market.innerHTML = "<div class=\"muted\">无匹配结果，可换关键词或尝试完整 owner/repo。</div>";
+          return;
+        }
+        market.innerHTML = rows
+          .map((row) => {
+            const raw = String(row.name || "");
+            const nm = escapeHtml(raw);
+            const enc = encodeURIComponent(raw);
+            const ds = escapeHtml(String(row.description || "").slice(0, 220));
+            return `<div class="wb-market-row"><span class="wb-m-ico">📦</span><div class="wb-market-row-body">
+<div class="wb-m-title">${nm}</div><div class="wb-m-desc">${ds}</div>
+<div class="wb-row-actions"><button type="button" class="wb-btn-xs primary" data-skill-install="${enc}">安装</button></div>
+</div></div>`;
+          })
+          .join("");
+        market.onclick = async (ev) => {
+          const b = ev.target.closest("[data-skill-install]");
+          if (!b) return;
+          const spec = decodeURIComponent(b.getAttribute("data-skill-install") || "");
+          if (!spec) return;
+          b.disabled = true;
+          try {
+            await gw.request("skills.manage", { action: "install", query: spec });
+            bubble("system", `已请求安装：${spec}`);
+            await refreshSidebars();
+            await paintSkillsMarket();
+          } catch (e) {
+            bubble("system", String(e.message || e));
+          } finally {
+            b.disabled = false;
+          }
+        };
+      } catch (e) {
+        market.className = "wb-market-list muted";
+        market.textContent = String(e.message || e);
+      }
+      return;
+    }
+    market.className = "wb-market-list";
+    market.innerHTML = "<div class=\"muted\">加载套件目录…</div>";
+    try {
+      const r = await gw.request("skills.manage", {
+        action: "browse",
+        query: String(browsePage),
+        page_size: 15,
+      });
+      const items = (r && r.items) || [];
+      const tp = Math.max(1, Number(r && r.total_pages) || 1);
+      const pg = Math.min(tp, Math.max(1, Number(r && r.page) || browsePage));
+      browsePage = pg;
+      if (!items.length) {
+        market.innerHTML = "<div class=\"muted\">目录为空或上游暂不可用。</div>";
+        return;
+      }
+      const nav = `<div class="wb-browse-nav muted" style="margin-bottom:10px">第 ${pg} / ${tp} 页 · 共 ${Number(r.total) || items.length} 条
+<button type="button" class="wb-btn-xs" data-browse-delta="-1" ${pg <= 1 ? "disabled" : ""}>上一页</button>
+<button type="button" class="wb-btn-xs" data-browse-delta="1" ${pg >= tp ? "disabled" : ""}>下一页</button></div>`;
+      market.innerHTML =
+        nav +
+        items
+          .map((row) => {
+            const raw = String(row.name || "");
+            const nm = escapeHtml(raw);
+            const enc = encodeURIComponent(raw);
+            const ds = escapeHtml(String(row.description || "").slice(0, 200));
+            const src = escapeHtml(String(row.source || ""));
+            return `<div class="wb-market-row"><span class="wb-m-ico">🗂</span><div class="wb-market-row-body">
+<div class="wb-m-title">${nm} <span class="muted">${src}</span></div><div class="wb-m-desc">${ds}</div>
+<div class="wb-row-actions"><button type="button" class="wb-btn-xs primary" data-skill-install="${enc}">安装</button></div>
+</div></div>`;
+          })
+          .join("");
+      market.querySelectorAll("[data-browse-delta]").forEach((btn) => {
+        btn.onclick = () => {
+          const d = Number(btn.getAttribute("data-browse-delta"));
+          browsePage = Math.max(1, Math.min(tp, pg + d));
+          paintSkillsMarket().catch(() => {});
+        };
+      });
+      market.onclick = async (ev) => {
+        if (ev.target.closest("[data-browse-delta]")) return;
+        const b = ev.target.closest("[data-skill-install]");
+        if (!b) return;
+        const spec = decodeURIComponent(b.getAttribute("data-skill-install") || "");
+        if (!spec) return;
+        b.disabled = true;
+        try {
+          await gw.request("skills.manage", { action: "install", query: spec });
+          bubble("system", `已请求安装：${spec}`);
+          await refreshSidebars();
+        } catch (e) {
+          bubble("system", String(e.message || e));
+        } finally {
+          b.disabled = false;
+        }
+      };
+    } catch (e) {
+      market.className = "wb-market-list muted";
+      market.textContent = String(e.message || e);
+    }
+  }
+
+  function onSkillsSearchInput() {
+    if (skillsMarketTab === "hub") {
+      if (skillsHubTimer) clearTimeout(skillsHubTimer);
+      skillsHubTimer = setTimeout(() => paintSkillsMarket().catch(() => {}), 400);
+    } else {
+      paintSkillsGrid();
+    }
+  }
+
+  function showCronJobModal(preset) {
+    const p = preset || {};
+    const name0 = escapeHtml(String(p.name || ""));
+    const sch0 = escapeHtml(String(p.schedule || "0 9 * * *"));
+    const pr0 = escapeHtml(String(p.prompt || ""));
+    openModal(`<div class="wb-modal-card wb-modal-wide">
+      <h2 style="margin:0 0 12px;font-size:1.05rem">新建定时任务</h2>
+      <label class="wb-form-label">名称</label>
+      <input type="text" id="cron-f-name" class="wb-modal-input" value="${name0}" />
+      <label class="wb-form-label">Cron（五段）</label>
+      <input type="text" id="cron-f-schedule" class="wb-modal-input" value="${sch0}" />
+      <label class="wb-form-label">提示词</label>
+      <textarea id="cron-f-prompt" class="wb-modal-textarea" rows="5">${pr0}</textarea>
+      <div class="wb-modal-actions">
+        <button type="button" class="wb-btn-outline" data-modal-close>取消</button>
+        <button type="button" class="wb-btn-primary" id="cron-f-save">创建</button>
+      </div></div>`);
+    const saveBtn = document.getElementById("cron-f-save");
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const n = document.getElementById("cron-f-name").value.trim();
+        const sch = document.getElementById("cron-f-schedule").value.trim();
+        const pr = document.getElementById("cron-f-prompt").value.trim();
+        if (!n || !sch || !pr) {
+          bubble("system", "请填写名称、计划与提示词");
+          return;
+        }
+        try {
+          await gw.request("cron.manage", { action: "add", name: n, schedule: sch, prompt: pr });
+          bubble("system", "定时任务已创建");
+          closeModal();
+          await loadCronJobs();
+        } catch (e) {
+          bubble("system", String(e.message || e));
+        }
+      };
+    }
+  }
+
+  function showExpertNewModal() {
+    openModal(`<div class="wb-modal-card wb-modal-wide">
+      <h2 style="margin:0 0 12px;font-size:1.05rem">新建委派专家</h2>
+      <p class="muted" style="font-size:12px;margin:0 0 12px">写入 <code>lingtan_ui.agents</code>，需唯一 <code>id</code>；工具集名与连接器列表一致。</p>
+      <label class="wb-form-label">ID（英文/数字/横线）</label>
+      <input type="text" id="ex-f-id" class="wb-modal-input" placeholder="my-worker" />
+      <label class="wb-form-label">显示名</label>
+      <input type="text" id="ex-f-name" class="wb-modal-input" placeholder="我的专员" />
+      <label class="wb-form-label">说明</label>
+      <textarea id="ex-f-desc" class="wb-modal-textarea" rows="3" placeholder="子代理职责简述"></textarea>
+      <label class="wb-form-label">工具集（逗号分隔）</label>
+      <input type="text" id="ex-f-ts" class="wb-modal-input" placeholder="file, terminal, web" />
+      <label class="wb-form-row"><input type="checkbox" id="ex-f-en" checked /> 启用</label>
+      <div class="wb-modal-actions">
+        <button type="button" class="wb-btn-outline" data-modal-close>取消</button>
+        <button type="button" class="wb-btn-primary" id="ex-f-save">保存</button>
+      </div></div>`);
+    document.getElementById("ex-f-save").onclick = async () => {
+      const id = document.getElementById("ex-f-id").value.trim();
+      const nm = document.getElementById("ex-f-name").value.trim();
+      const desc = document.getElementById("ex-f-desc").value.trim();
+      const tsRaw = document.getElementById("ex-f-ts").value.trim();
+      const en = document.getElementById("ex-f-en").checked;
+      if (!id || !nm) {
+        bubble("system", "请填写 ID 与显示名");
+        return;
+      }
+      const toolsets = tsRaw
+        ? tsRaw
+            .split(/[,，\s]+/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+      const row = { id, name: nm, description: desc, toolsets, enabled: en };
+      const next = lastRosterAgents.slice();
+      if (next.some((a) => String(a.id) === id)) {
+        bubble("system", "ID 已存在");
+        return;
+      }
+      next.push(row);
+      try {
+        await saveLingtanRoster(next);
+        closeModal();
+      } catch (e) {
+        bubble("system", String(e.message || e));
+      }
+    };
+  }
+
   async function onViewShown(v) {
     if (v === "experts") await loadRoster();
     if (v === "explore") await loadExplorePlugins();
     if (v === "automation") await loadCronJobs();
+    if (v === "library") await loadLibraryPanel();
+    if (v === "skills") {
+      browsePage = 1;
+      await paintSkillsMarket();
+    }
     if (v === "connectors" && sessionId) {
       if (lastToolsets.length) {
         renderConnectorCards(lastToolsets);
@@ -961,8 +1396,7 @@
     modal.querySelectorAll("[data-choice]").forEach((btn) => {
       btn.onclick = async () => {
         const choice = btn.getAttribute("data-choice");
-        modal.classList.add("hidden");
-        modal.innerHTML = "";
+        closeModal();
         try {
           await gw.request("approval.respond", { session_id: sessionId, choice });
         } catch (e) {
@@ -1042,7 +1476,7 @@
     paintSkillsGrid();
   });
 
-  skillsSearch.addEventListener("input", () => paintSkillsGrid());
+  skillsSearch.addEventListener("input", () => onSkillsSearchInput());
 
   navMenu.addEventListener("click", (e) => {
     const btn = e.target.closest(".wb-nav-item[data-view]");
@@ -1111,11 +1545,63 @@
     });
   }
 
-  document.querySelector(".wb-market-tabs")?.addEventListener("click", (e) => {
-    const t = e.target.closest(".wb-mtab");
+  document.getElementById("skills-market-tabs")?.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-skills-tab]");
     if (!t) return;
-    document.querySelectorAll(".wb-mtab").forEach((x) => x.classList.remove("active"));
+    skillsMarketTab = t.getAttribute("data-skills-tab") || "rec";
+    if (skillsMarketTab === "bundles") browsePage = 1;
+    document.querySelectorAll("#skills-market-tabs .wb-mtab").forEach((x) => x.classList.remove("active"));
     t.classList.add("active");
+    if (skillsMarketTab !== "hub") paintSkillsGrid();
+    paintSkillsMarket().catch(() => {});
+  });
+
+  document.getElementById("btn-expert-new")?.addEventListener("click", () => showExpertNewModal());
+
+  document.getElementById("btn-add-skill")?.addEventListener("click", () => {
+    openModal(`<div class="wb-modal-card"><h2 style="margin:0 0 10px;font-size:1rem">安装技能</h2>
+      <p class="muted" style="font-size:12px;margin:0 0 8px">传入 SkillHub 标识（如 <code>owner/repo</code>）或 CLI 支持的安装串。</p>
+      <input type="text" id="skill-in-spec" class="wb-modal-input" placeholder="例如 official/github/my-skill" />
+      <div class="wb-modal-actions">
+        <button type="button" class="wb-btn-outline" data-modal-close>取消</button>
+        <button type="button" class="wb-btn-primary" id="skill-in-go">安装</button>
+      </div></div>`);
+    document.getElementById("skill-in-go").onclick = async () => {
+      const q = document.getElementById("skill-in-spec").value.trim();
+      if (!q) return;
+      try {
+        await gw.request("skills.manage", { action: "install", query: q });
+        bubble("system", `已请求安装：${q}`);
+        closeModal();
+        await refreshSidebars();
+        await paintSkillsMarket();
+      } catch (e) {
+        bubble("system", String(e.message || e));
+      }
+    };
+  });
+
+  document.getElementById("btn-plugin-install")?.addEventListener("click", async () => {
+    const el = document.getElementById("plugin-install-id");
+    const id = (el && el.value.trim()) || "";
+    if (!id) {
+      bubble("system", "请填写 Git URL 或 owner/repo");
+      return;
+    }
+    await runCliExec(["plugins", "install", id, "--enable"], "plugins install");
+    await loadExplorePlugins();
+  });
+
+  document.getElementById("btn-cron-add")?.addEventListener("click", () => showCronJobModal({}));
+
+  document.getElementById("cron-templates-grid")?.addEventListener("click", (e) => {
+    const card = e.target.closest(".wb-cron-template");
+    if (!card) return;
+    showCronJobModal({
+      name: card.getAttribute("data-cron-name") || "",
+      schedule: card.getAttribute("data-cron-schedule") || "0 9 * * *",
+      prompt: card.getAttribute("data-cron-prompt") || "",
+    });
   });
 
   gw.onEvent = onGatewayEvent;

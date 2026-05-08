@@ -3582,6 +3582,82 @@ def _(rid, params: dict) -> dict:
         except Exception as e:
             return _err(rid, 5001, str(e))
 
+    if key == "lingtan.roster":
+        try:
+            import json as _json
+
+            raw = value
+            if isinstance(raw, str) and str(raw).strip():
+                agents_payload = _json.loads(raw)
+            elif isinstance(raw, dict):
+                agents_payload = raw
+            elif isinstance(raw, list):
+                agents_payload = {"agents": raw}
+            else:
+                return _err(
+                    rid,
+                    4002,
+                    "lingtan.roster value must be object {agents: [...]}, JSON string, or array",
+                )
+
+            agents = (
+                agents_payload.get("agents")
+                if isinstance(agents_payload, dict)
+                else None
+            )
+            if agents is None and isinstance(agents_payload, list):
+                agents = agents_payload
+            if not isinstance(agents, list):
+                return _err(rid, 4002, "lingtan.roster requires agents: array")
+
+            cleaned: list[dict] = []
+            for i, a in enumerate(agents):
+                if not isinstance(a, dict):
+                    continue
+                aid = str(a.get("id", "")).strip()
+                if not aid:
+                    return _err(rid, 4002, f"agent[{i}] missing id")
+                name = str(a.get("name", aid)).strip() or aid
+                desc = str(a.get("description", "") or "")
+                toolsets = a.get("toolsets")
+                if toolsets is not None and not isinstance(toolsets, list):
+                    return _err(rid, 4002, f"agent[{i}].toolsets must be array or null")
+                ts = [
+                    str(t).strip()
+                    for t in (toolsets or [])
+                    if isinstance(t, (str, int)) and str(t).strip()
+                ]
+                en = a.get("enabled", True)
+                enabled = bool(en) if not isinstance(en, str) else en.lower() in (
+                    "1",
+                    "true",
+                    "yes",
+                    "on",
+                )
+                row = {
+                    "id": aid,
+                    "name": name,
+                    "description": desc,
+                    "toolsets": ts,
+                    "enabled": enabled,
+                }
+                cleaned.append(row)
+
+            cfg = _load_cfg()
+            prev = cfg.get("lingtan_ui")
+            extra = ""
+            if isinstance(prev, dict):
+                v = prev.get("subagent_prompt_extra")
+                if isinstance(v, str):
+                    extra = v
+            cfg["lingtan_ui"] = {"subagent_prompt_extra": extra, "agents": cleaned}
+            _save_cfg(cfg)
+            return _ok(rid, {"key": key, "saved": len(cleaned), "agents": cleaned})
+        except _json.JSONDecodeError as e:
+            return _err(rid, 4002, f"invalid JSON: {e}")
+        except Exception as e:
+            return _err(rid, 5001, str(e))
+
     return _err(rid, 4002, f"unknown config key: {key}")
 
 
@@ -5617,7 +5693,8 @@ def _(rid, params: dict) -> dict:
 
 @method("cron.manage")
 def _(rid, params: dict) -> dict:
-    action, jid = params.get("action", "list"), params.get("name", "")
+    action = str(params.get("action", "list") or "").strip().lower()
+    jid = str(params.get("job_id") or params.get("name", "") or "").strip()
     try:
         from tools.cronjob_tools import cronjob
 

@@ -163,10 +163,12 @@
                 <h1 class="wb-page-title">专家中心</h1>
                 <div class="wb-tabs-row">
                   <button type="button" class="wb-tab active">我的专家</button>
-                  <span class="wb-badge-soon">敬请期待</span>
+                  <span class="wb-page-sub" style="margin:0;font-size:12px">配置写入 lingtan_ui.agents，与 delegate_task 子代理一致</span>
                 </div>
               </div>
-              <input type="search" class="wb-page-search" placeholder="搜索专家职称或描述" />
+              <div class="wb-page-head-tools">
+                <button type="button" class="wb-btn-primary" id="btn-expert-new">+ 新建专家</button>
+              </div>
             </header>
 
             <section class="wb-block">
@@ -203,8 +205,8 @@
                 <p class="wb-page-sub">赋予 0tan 更强大的能力</p>
               </div>
               <div class="wb-page-head-tools">
-                <input type="search" id="skills-search" class="wb-page-search" placeholder="搜索技能" autocomplete="off" spellcheck="false" />
-                <button type="button" class="wb-btn-outline">+ 添加技能</button>
+                <input type="search" id="skills-search" class="wb-page-search" placeholder="筛选已安装 / SkillHub 检索" autocomplete="off" spellcheck="false" />
+                <button type="button" class="wb-btn-outline" id="btn-add-skill">+ 安装技能</button>
               </div>
             </header>
 
@@ -217,20 +219,14 @@
               <button type="button" class="wb-show-more">显示更多 <span>▾</span></button>
             </section>
 
-            <div class="wb-market-tabs">
-              <button type="button" class="wb-mtab active">推荐</button>
-              <button type="button" class="wb-mtab">SkillHub</button>
-              <button type="button" class="wb-mtab">套件</button>
+            <div class="wb-market-tabs" id="skills-market-tabs">
+              <button type="button" class="wb-mtab active" data-skills-tab="rec">推荐</button>
+              <button type="button" class="wb-mtab" data-skills-tab="hub">SkillHub</button>
+              <button type="button" class="wb-mtab" data-skills-tab="bundles">套件目录</button>
             </div>
             <div id="skills-filters" class="wb-cat-pills wb-cat-pills-wrap" aria-label="技能分类"></div>
             <div id="skills-market-list" class="wb-market-list muted">
-              <div class="wb-market-row">
-                <span class="wb-m-ico">📦</span>
-                <div>
-                  <div class="wb-m-title">已安装技能</div>
-                  <div class="wb-m-desc">上方「已安装」卡片由本机运行时扫描；此处可后续接入 SkillHub 远程检索。</div>
-                </div>
-              </div>
+              <div class="muted" style="padding:10px 0;font-size:13px">切换上方标签：推荐为已安装摘要；SkillHub 使用顶部搜索框检索远程技能并一键安装；套件目录分页浏览可选技能包。</div>
             </div>
           </div>
         </section>
@@ -241,9 +237,13 @@
             <header class="wb-page-head">
               <div>
                 <h1 class="wb-page-title">探索</h1>
-                <p class="wb-page-sub">本机已注册插件（随侧车进程加载）</p>
+                <p class="wb-page-sub">本机插件（<code>plugins</code> CLI）；安装后需重启侧车生效</p>
               </div>
             </header>
+            <div class="wb-plugin-install-bar">
+              <input type="text" id="plugin-install-id" class="wb-input-grow" placeholder="GitHub owner/repo 或完整 Git URL" spellcheck="false" />
+              <button type="button" class="wb-btn-primary" id="btn-plugin-install">安装</button>
+            </div>
             <div id="explore-plugins" class="wb-market-list muted">加载中…</div>
           </div>
         </section>
@@ -286,11 +286,15 @@
 
         <!-- 资料库 -->
         <section id="view-library" class="wb-view" aria-label="资料库">
-          <div class="wb-page wb-page-white wb-center">
-            <div class="wb-soon">
-              <div class="wb-soon-ico">📚</div>
-              <h1 class="wb-page-title">资料库</h1>
-              <p class="muted">文档与知识库入口；与外部存储联调可通过「连接器」扩展。</p>
+          <div class="wb-page wb-page-white">
+            <header class="wb-page-head">
+              <div>
+                <h1 class="wb-page-title">资料库</h1>
+                <p class="wb-page-sub">本机配置与数据路径（只读展示，路径来自侧车）</p>
+              </div>
+            </header>
+            <div id="library-panel" class="wb-library-panel muted" style="padding:16px;max-width:640px">
+              <p>加载中…</p>
             </div>
           </div>
         </section>
@@ -303,24 +307,25 @@
                 <h1 class="wb-page-title">自动化</h1>
                 <p class="wb-page-sub">管理自动化任务并查看近期运行记录。</p>
               </div>
-              <button type="button" class="wb-btn-outline">+ 添加</button>
+              <button type="button" class="wb-btn-primary" id="btn-cron-add">+ 新建定时任务</button>
             </header>
             <h2 class="wb-block-title">已配置定时任务</h2>
             <div id="cron-jobs-grid" class="wb-auto-grid" style="margin-bottom:28px"></div>
             <h2 class="wb-block-title">从模版入手</h2>
-            <div class="wb-auto-grid">
-              <article class="wb-auto-card"><span class="wb-auto-ico">📰</span><strong>每日 AI 新闻推送</strong><p>定时抓取要点并推送摘要</p></article>
-              <article class="wb-auto-card"><span class="wb-auto-ico">文A</span><strong>每日 5 个英语单词</strong><p>卡片记忆与例句</p></article>
-              <article class="wb-auto-card"><span class="wb-auto-ico">🌙</span><strong>每日儿童睡前故事</strong><p>温和叙事与互动提问</p></article>
-              <article class="wb-auto-card"><span class="wb-auto-ico">📑</span><strong>每周工作周报</strong><p>汇总本周产出与风险</p></article>
-              <article class="wb-auto-card"><span class="wb-auto-ico">🎬</span><strong>经典电影推荐</strong><p>按偏好与片单更新</p></article>
-              <article class="wb-auto-card"><span class="wb-auto-ico">📅</span><strong>历史上的今天</strong><p>一日一史卡片</p></article>
-              <article class="wb-auto-card"><span class="wb-auto-ico">💡</span><strong>每日一个为什么</strong><p>科普短问答</p></article>
-              <article class="wb-auto-card"><span class="wb-auto-ico">⏰</span><strong>父母联系提醒</strong><p>周期性关怀提醒</p></article>
-              <article class="wb-auto-card"><span class="wb-auto-ico">🏥</span><strong>体检预约提醒</strong><p>日程与材料清单</p></article>
-              <article class="wb-auto-card"><span class="wb-auto-ico">💬</span><strong>面试准备提醒</strong><p>题库与模拟问答</p></article>
-              <article class="wb-auto-card"><span class="wb-auto-ico">✔️</span><strong>会议前准备</strong><p>议程与材料检查</p></article>
-              <article class="wb-auto-card"><span class="wb-auto-ico">🖼</span><strong>可爱萌宠手机壁纸</strong><p>每日一图推送</p></article>
+            <p class="wb-page-sub" style="margin:-8px 0 12px">点击模版将打开表单并预填；确认后调用本机 <code>cron</code> 创建真实任务。</p>
+            <div class="wb-auto-grid" id="cron-templates-grid">
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="每日要点" data-cron-schedule="0 8 * * *" data-cron-prompt="用 5 条要点总结今天值得关注的 AI / 科技新闻（中文），每条一行链接占位说明。"><span class="wb-auto-ico">📰</span><strong>每日 AI 新闻推送</strong><p>定时抓取要点并推送摘要</p></article>
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="每日单词" data-cron-schedule="0 7 * * *" data-cron-prompt="给出 5 个英语单词（含音标、简明中文释义、各一句例句），适合日常积累。"><span class="wb-auto-ico">文A</span><strong>每日 5 个英语单词</strong><p>卡片记忆与例句</p></article>
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="睡前故事" data-cron-schedule="0 20 * * *" data-cron-prompt="为 6–8 岁儿童写一则 3 分钟可读完的睡前小故事，语气温柔，结尾有晚安祝福。"><span class="wb-auto-ico">🌙</span><strong>每日儿童睡前故事</strong><p>温和叙事与互动提问</p></article>
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="工作周报" data-cron-schedule="0 9 * * 1" data-cron-prompt="根据本周工作常见产出，生成一份简洁周报草稿：本周完成、风险、下周计划（各若干条）。"><span class="wb-auto-ico">📑</span><strong>每周工作周报</strong><p>汇总本周产出与风险</p></article>
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="电影推荐" data-cron-schedule="0 18 * * 5" data-cron-prompt="推荐 3 部值得周末观看的电影（不同类型），每部一句话理由，无剧透。"><span class="wb-auto-ico">🎬</span><strong>经典电影推荐</strong><p>按偏好与片单更新</p></article>
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="历史上的今天" data-cron-schedule="0 8 * * *" data-cron-prompt="历史上的今天：列出 3 条简明事件卡片（年份 + 一句话）。"><span class="wb-auto-ico">📅</span><strong>历史上的今天</strong><p>一日一史卡片</p></article>
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="每日为什么" data-cron-schedule="0 12 * * *" data-cron-prompt="回答一个有趣的「为什么」科普问题，200 字以内，适合大众阅读。"><span class="wb-auto-ico">💡</span><strong>每日一个为什么</strong><p>科普短问答</p></article>
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="父母联系提醒" data-cron-schedule="0 10 * * 0" data-cron-prompt="生成一段温和的家庭关怀提醒文案，提醒本周给父母发消息或通话，附 2 个可聊话题。"><span class="wb-auto-ico">⏰</span><strong>父母联系提醒</strong><p>周期性关怀提醒</p></article>
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="体检预约" data-cron-schedule="0 9 1 * *" data-cron-prompt="列出本月体检预约准备清单：证件、空腹项目、注意事项（通用模板）。"><span class="wb-auto-ico">🏥</span><strong>体检预约提醒</strong><p>日程与材料清单</p></article>
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="面试准备" data-cron-schedule="0 19 * * *" data-cron-prompt="模拟 5 个常见面试问题并给出要点式回答提纲（STAR 结构提示）。"><span class="wb-auto-ico">💬</span><strong>面试准备提醒</strong><p>题库与模拟问答</p></article>
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="会议前准备" data-cron-schedule="0 9 * * 1-5" data-cron-prompt="工作日早晨：生成会议前 10 分钟检查清单（材料、议程、风险点）。"><span class="wb-auto-ico">✔️</span><strong>会议前准备</strong><p>议程与材料检查</p></article>
+              <article class="wb-auto-card wb-cron-template" tabindex="0" role="button" data-cron-name="萌宠壁纸" data-cron-schedule="0 7 * * *" data-cron-prompt="用文字描述一张可爱宠物手机壁纸的构图与配色（不提供外链），供手工制作参考。"><span class="wb-auto-ico">🖼</span><strong>可爱萌宠手机壁纸</strong><p>每日一图推送</p></article>
             </div>
           </div>
         </section>

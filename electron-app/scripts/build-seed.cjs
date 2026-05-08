@@ -62,8 +62,19 @@ function ensureDir(p) {
 // `tool.setuptools.py-modules`, which is the canonical list of single-
 // file Python modules we have to ship for the agent to import cleanly.
 // `INCLUDE_DIRS` mirrors the `tool.setuptools.packages.find.include`
-// list with one carve-out: gateway/tui_gateway/plugins are not on the
-// chat path and skipping them shaves ~9 MB off the .exe.
+// list with one carve-out: tui_gateway / plugins are not on the chat
+// path and skipping them shaves ~5 MB off the .exe.
+//
+// gateway/ is a special case.  We do NOT ship the full package (the
+// platform adapters under gateway/platforms/ pull in heavy deps —
+// telethon / discord.py / slack_sdk / matrix-nio — that the desktop
+// chat surface never exercises).  But agent/prompt_builder.py and
+// several tools/*.py modules lazily do `from gateway.session_context
+// import get_session_env` on the chat path, so we synthesize a
+// minimal gateway/ subpackage in the seed: an empty __init__.py
+// (suppresses gateway/__init__.py's eager config/session/delivery
+// imports) plus the real session_context.py (stdlib-only, no deps).
+// See `vendorGatewayStub()` below.
 // ──────────────────────────────────────────────────────────────────────
 
 const INCLUDE_TOPLEVEL_PY = [
@@ -162,6 +173,39 @@ function vendorAgentSource() {
   );
 
   console.log(`[seed] hermes-agent/ vendored: ${copiedFiles} top-level + ${INCLUDE_DIRS.length} packages`);
+
+  vendorGatewayStub();
+}
+
+// Minimal gateway/ subpackage so that
+// `from gateway.session_context import get_session_env` resolves.
+// We deliberately ship an empty __init__.py instead of the upstream one
+// (which eagerly imports config/session/delivery — extra surface we
+// don't need on the desktop chat path).  session_context.py itself is
+// stdlib-only, so no extra runtime deps are required.
+function vendorGatewayStub() {
+  const dst = path.join(AGENT_SEED, 'gateway');
+  fs.mkdirSync(dst, { recursive: true });
+  fs.writeFileSync(
+    path.join(dst, '__init__.py'),
+    '# Lingtan Assistant: minimal gateway stub.\n' +
+      '# The desktop chat surface only needs gateway.session_context,\n' +
+      '# so we suppress the upstream package __init__ to avoid pulling\n' +
+      '# config/session/delivery and their messaging-platform deps.\n',
+    'utf8'
+  );
+  const sessionCtxSrc = path.join(REPO_ROOT, 'gateway', 'session_context.py');
+  if (!fs.existsSync(sessionCtxSrc)) {
+    throw new Error(
+      `[seed] gateway/session_context.py missing at ${sessionCtxSrc} — ` +
+        `cannot vendor minimal gateway stub.`
+    );
+  }
+  fs.copyFileSync(
+    sessionCtxSrc,
+    path.join(dst, 'session_context.py')
+  );
+  console.log('[seed]   + gateway/ stub (__init__.py + session_context.py)');
 }
 
 // ──────────────────────────────────────────────────────────────────────

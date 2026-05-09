@@ -442,6 +442,28 @@ async function main() {
 
   // ── 1. encrypted secrets ───────────────────────────────────────────
   const { secrets, count } = buildSecretsBundle();
+  // Hard-fail on accidental zero-key builds.  Every desktop release is
+  // expected to ship the developer's API keys baked in (that's the
+  // whole point of "open the .exe and it just chats").  A 0-key
+  // build looks fine in the installer but explodes the moment the
+  // user sends a message with `RuntimeError: Provider 'azure-foundry'
+  // is set in config.yaml but no API key was found`.  This guard
+  // caught a real regression where a stray HERMES_HOME export from a
+  // smoke test pointed build-seed at an empty temp dir.
+  // Use --allow-empty-secrets if you genuinely want a bring-your-own
+  // -key build (e.g. for distribution to a different account).
+  const allowEmpty = process.argv.includes('--allow-empty-secrets');
+  if (count === 0 && !allowEmpty) {
+    const envPath = path.join(HERMES_HOME, '.env');
+    throw new Error(
+      `[seed] refusing to build with 0 bundled API keys.\n` +
+        `  HERMES_HOME = ${HERMES_HOME}\n` +
+        `  .env path   = ${envPath} (${fs.existsSync(envPath) ? 'exists' : 'MISSING'})\n` +
+        `  This usually means HERMES_HOME is pointing at the wrong directory.\n` +
+        `  Unset stale HERMES_HOME env vars (echo $HERMES_HOME), or pass\n` +
+        `  --allow-empty-secrets if a key-less build is what you actually want.`
+    );
+  }
   const bundle = {
     v: 1,
     builtAt: new Date().toISOString(),

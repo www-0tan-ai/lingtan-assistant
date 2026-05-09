@@ -1021,6 +1021,18 @@ class AIAgent:
         self.background_review_callback = None  # Optional sync callback for gateway delivery
         self.skip_context_files = skip_context_files
         self.load_soul_identity = load_soul_identity
+        # Lingtan / 0tan desktop + branded Web UI: the UI uses
+        # skip_context_files=True so AGENTS.md from the cwd does not pollute
+        # every chat, but that same flag skips ~/.hermes/SOUL.md unless
+        # load_soul_identity=True — leaving the model on DEFAULT_AGENT_IDENTITY
+        # ("Hermes Agent...").  Force soul loading when branded.
+        try:
+            import os as _os_lingtan
+
+            if _os_lingtan.environ.get("LINGTAN_BRANDING") == "1" and self.skip_context_files:
+                self.load_soul_identity = True
+        except Exception:
+            pass
         self.pass_session_id = pass_session_id
         self._credential_pool = credential_pool
         self.log_prefix_chars = log_prefix_chars

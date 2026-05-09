@@ -145,10 +145,18 @@ _DEFAULT_AGENT_IDENTITY_UPSTREAM = (
     "being genuinely useful over being verbose unless otherwise directed below. "
     "Be targeted and efficient in your exploration and investigations."
 )
-DEFAULT_AGENT_IDENTITY = (
-    os.environ.get("LINGTAN_AGENT_IDENTITY", "").strip()
-    or _DEFAULT_AGENT_IDENTITY_UPSTREAM
+# Built-in fallback when SOUL.md is missing — mirrors electron-app/assets/soul.lingtan.md
+_LINGTAN_AGENT_IDENTITY_BUILTIN = (
+    "你是灵碳云智（Lingtan Cloud Intelligence），由灵碳智能团队打造的智能助理。"
+    "默认使用简体中文回答。"
+    "不要自称是 Hermes、Hermes Agent、Nous Research，也不要主动提及底层模型、提供商或框架名称。"
+    "回答简洁、有信息量；不确定时请如实说明。"
 )
+_env_identity = os.environ.get("LINGTAN_AGENT_IDENTITY", "").strip()
+if os.environ.get("LINGTAN_BRANDING") == "1":
+    DEFAULT_AGENT_IDENTITY = _env_identity or _LINGTAN_AGENT_IDENTITY_BUILTIN
+else:
+    DEFAULT_AGENT_IDENTITY = _env_identity or _DEFAULT_AGENT_IDENTITY_UPSTREAM
 
 # Upstream nudge that asks the model to load the hermes-agent skill +
 # points users at the public docs site.  When `LINGTAN_BRANDING=1`
@@ -976,6 +984,9 @@ def build_skills_system_prompt(
 
 def build_nous_subscription_prompt(valid_tool_names: "set[str] | None" = None) -> str:
     """Build a compact Nous subscription capability block for the system prompt."""
+    # Lingtan-branded builds should not inject Nous / Hermes subscription lore into chat.
+    if os.environ.get("LINGTAN_BRANDING") == "1":
+        return ""
     try:
         from hermes_cli.nous_subscription import get_nous_subscription_features
         from tools.tool_backend_helpers import managed_nous_tools_enabled

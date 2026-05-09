@@ -60,24 +60,40 @@ function ensureHermesHome(seedDir, userDataDir) {
 
   fs.mkdirSync(target, { recursive: true });
 
-  // First-launch detection: marker file we drop into target after seeding.
+  // First-launch full seed: copy the entire seed/hermes-home tree
+  // (config.yaml, .lingtan-seed.json, SOUL.md, ...) into userData.
+  // Subsequent launches keep user edits to most files (strategy A),
+  // but we always re-sync the brand identity (SOUL.md) from the seed
+  // because it's a product-shipped constant -- if we leave it alone,
+  // upgrading from a 0.3.x build that shipped Hermes-branded SOUL.md
+  // would leave the persona stuck on the old text forever.
   const seededMarker = path.join(target, '.lingtan-seeded');
-  if (fs.existsSync(seededMarker)) {
-    return target;
-  }
+  const firstLaunch = !fs.existsSync(seededMarker);
 
-  if (fs.existsSync(seedSrc)) {
+  if (firstLaunch && fs.existsSync(seedSrc)) {
     _copyDirRecursive(seedSrc, target);
   }
 
-  fs.writeFileSync(
-    seededMarker,
-    JSON.stringify(
-      { seededAt: new Date().toISOString(), version: 1 },
-      null,
-      2
-    )
-  );
+  // Always overwrite SOUL.md from seed (idempotent identity sync).
+  const soulSeed = path.join(seedSrc, 'SOUL.md');
+  if (fs.existsSync(soulSeed)) {
+    try {
+      fs.copyFileSync(soulSeed, path.join(target, 'SOUL.md'));
+    } catch (e) {
+      console.warn('[seed-runtime] could not refresh SOUL.md:', e.message);
+    }
+  }
+
+  if (firstLaunch) {
+    fs.writeFileSync(
+      seededMarker,
+      JSON.stringify(
+        { seededAt: new Date().toISOString(), version: 2 },
+        null,
+        2
+      )
+    );
+  }
   return target;
 }
 

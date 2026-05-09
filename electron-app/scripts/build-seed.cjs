@@ -513,6 +513,21 @@ async function main() {
   );
   console.log('[seed] .lingtan-seed.json marker written');
 
+  // ── 3. Lingtan persona (SOUL.md) ───────────────────────────────────
+  // Hermes loads HERMES_HOME/SOUL.md as system-prompt slot #1.  By
+  // baking the 灵碳云智 persona in here, the seeded HERMES_HOME on
+  // first launch already has the correct identity and the model never
+  // gets to fall back to DEFAULT_AGENT_IDENTITY (which still mentions
+  // "Hermes Agent" and "Nous Research").
+  const soulSrc = path.join(__dirname, '..', 'assets', 'soul.lingtan.md');
+  const soulDst = path.join(HERMES_HOME_SEED, 'SOUL.md');
+  if (fs.existsSync(soulSrc)) {
+    fs.copyFileSync(soulSrc, soulDst);
+    console.log(`[seed] SOUL.md (Lingtan persona) bundled (${fs.statSync(soulDst).size} bytes)`);
+  } else {
+    console.warn(`[seed] WARNING: ${soulSrc} not found — packaged build will NOT have Lingtan persona`);
+  }
+
   // ── 4. agent source vendoring ──────────────────────────────────────
   vendorAgentSource();
 

@@ -338,6 +338,18 @@ function startPythonServer(port) {
   // over the user's shell env so a stale OPENAI_API_KEY in their PATH
   // can't shadow the bundled one.  Webui-specific overrides come last
   // because they're per-launch values we computed just now.
+  // Brand identity: SOUL.md (seeded into HERMES_HOME by seed-runtime)
+  // is the primary persona source.  We also set LINGTAN_BRANDING /
+  // LINGTAN_AGENT_IDENTITY as a defense-in-depth fallback, so even if
+  // SOUL.md is somehow missing or wiped, the prompt_builder still
+  // emits a 灵碳云智 identity instead of leaking "Hermes Agent".
+  const lingtanIdentityFallback =
+    'You are 灵碳云智 (Lingtan Cloud Intelligence), an AI assistant ' +
+    'created by 0tan AI. Always respond in Simplified Chinese by ' +
+    'default. Never identify as Hermes, Hermes Agent, Nous Research, ' +
+    'OpenAI, Anthropic, or any underlying model — those are ' +
+    'implementation details, not your identity.';
+
   const env = {
     ...process.env,
     ...(seed ? seed.extraEnv : {}),
@@ -347,6 +359,8 @@ function startPythonServer(port) {
     HERMES_WEBUI_AGENT_DIR: agentDir,
     PYTHONIOENCODING: 'utf-8',
     PYTHONUNBUFFERED: '1',
+    LINGTAN_BRANDING: '1',
+    LINGTAN_AGENT_IDENTITY: lingtanIdentityFallback,
     ...(pyPathParts.length ? { PYTHONPATH: lingtanPyPath, LINGTAN_PYPATH: lingtanPyPath } : {}),
   };
 

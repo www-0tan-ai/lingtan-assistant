@@ -3635,6 +3635,16 @@ class TestSystemPromptStability:
         # Empty string is falsy, so should fall through to fresh build
         assert "Hermes Agent" in agent._cached_system_prompt
 
+
+def test_lingtan_legacy_stored_prompt_detection():
+    from run_agent import _lingtan_stored_prompt_is_legacy_hermes_snapshot as legacy
+
+    assert legacy("You are Hermes Agent.")
+    assert legacy("Credits: Nous Research")
+    assert not legacy("灵碳云智")
+    assert not legacy("")
+
+
 class TestBudgetPressure:
     """Budget exhaustion grace call system."""
 

@@ -71,6 +71,20 @@ def _load_openai_cls() -> type:
     return _OPENAI_CLS_CACHE
 
 
+def _lingtan_stored_prompt_is_legacy_hermes_snapshot(prompt: str) -> bool:
+    """True if SQLite-held system_prompt looks like pre-rebrand Hermes/Nous identity.
+
+    Lingtan ships ``LINGTAN_BRANDING=1`` and reads persona from ``SOUL.md``, but
+    continuing sessions load ``sessions.system_prompt`` from SQLite for Anthropic
+    prefix-cache stability — that snapshot ignores later disk edits.  Drop it when
+    it clearly predates the Lingtan identity bundle.
+    """
+    if not prompt:
+        return False
+    low = prompt.lower()
+    return "hermes agent" in low or "nous research" in low
+
+
 class _OpenAIProxy:
     """Module-level proxy that looks like ``openai.OpenAI`` but imports lazily."""
 
@@ -10324,6 +10338,13 @@ class AIAgent:
                         stored_prompt = session_row.get("system_prompt") or None
                 except Exception:
                     pass  # Fall through to build fresh
+
+            if (
+                stored_prompt
+                and os.environ.get("LINGTAN_BRANDING") == "1"
+                and _lingtan_stored_prompt_is_legacy_hermes_snapshot(stored_prompt)
+            ):
+                stored_prompt = None
 
             if stored_prompt:
                 # Continuing session — reuse the exact system prompt from

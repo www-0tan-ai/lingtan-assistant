@@ -29,6 +29,28 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r hermes-webui\requirements.txt
 ```
 
+## Persona (`SOUL.md`) — how it loads
+
+At runtime `HERMES_HOME` points to `%APPDATA%\lingtan-assistant\hermes-home\`.
+The Python agent reads `SOUL.md` there as **system-prompt slot #1** (via
+`load_soul_md()` in `agent/prompt_builder.py`). When `LINGTAN_BRANDING=1`
+(main process sets this on the spawned Python child), Web UI builds that use
+`skip_context_files=True` still force `load_soul_identity=True` so `SOUL.md`
+is never skipped.
+
+**Source → bundle:** `electron-app/assets/soul.lingtan.md` is copied into
+`seed/hermes-home/SOUL.md` by `scripts/build-seed.cjs` (`npm run seed`).
+That seed ships inside the installer under `resources/seed/hermes-home/`.
+
+**Iterate without `npm run dist`:** edit `assets/soul.lingtan.md`, then run
+`npm run seed` and restart `npm run dev` — no electron-builder step.
+
+**Iterate on an installed `.exe`:** by default each launch re-copies bundled
+`SOUL.md` into `hermes-home` so upgrades fix stale personas. To **stop** that
+sync and edit the file by hand, set `LINGTAN_SKIP_SOUL_SEED_SYNC=1` before
+starting the app (user or system environment), then edit
+`%APPDATA%\lingtan-assistant\hermes-home\SOUL.md` and restart.
+
 ## Run in development
 
 ```powershell
@@ -72,6 +94,7 @@ not need a system Python. Override the version with
 | `LINGTAN_PORT` | Preferred port (auto-increments on collision) |
 | `LINGTAN_DEV` | `1` to force devtools / dev-mode resource paths |
 | `LINGTAN_SETTINGS_PASSWORD` | (build-time only) Password to unlock the in-app Settings panel. Default `lingtan2026`. Only its SHA-256 is bundled. |
+| `LINGTAN_SKIP_SOUL_SEED_SYNC` | `1` / `true`: do not overwrite `hermes-home/SOUL.md` from bundled seed on each launch — use when tuning persona without rebuilding the installer (edit `%APPDATA%\...\hermes-home\SOUL.md`). |
 | `HERMES_HOME` | (build-time only, optional) Source dir to seed from when running `npm run seed`. Default `~/.hermes`. |
 
 ## Bundled "zero-config" install (security-sensitive)

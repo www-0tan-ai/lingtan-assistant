@@ -74,13 +74,22 @@ function ensureHermesHome(seedDir, userDataDir) {
     _copyDirRecursive(seedSrc, target);
   }
 
-  // Always overwrite SOUL.md from seed (idempotent identity sync).
-  const soulSeed = path.join(seedSrc, 'SOUL.md');
-  if (fs.existsSync(soulSeed)) {
-    try {
-      fs.copyFileSync(soulSeed, path.join(target, 'SOUL.md'));
-    } catch (e) {
-      console.warn('[seed-runtime] could not refresh SOUL.md:', e.message);
+  // Re-sync SOUL.md from seed on every launch so upgrading the .exe picks up
+  // a new bundled persona.  Optional escape hatch for local iteration without
+  // rebuilding installers: set LINGTAN_SKIP_SOUL_SEED_SYNC=1 in the environment
+  // before launching Electron, then edit %APPDATA%\lingtan-assistant\hermes-home\SOUL.md
+  // and restart — your edits persist across launches.
+  const skipSoulSync = /^1|true|yes$/i.test(
+    String(process.env.LINGTAN_SKIP_SOUL_SEED_SYNC || '').trim()
+  );
+  if (!skipSoulSync) {
+    const soulSeed = path.join(seedSrc, 'SOUL.md');
+    if (fs.existsSync(soulSeed)) {
+      try {
+        fs.copyFileSync(soulSeed, path.join(target, 'SOUL.md'));
+      } catch (e) {
+        console.warn('[seed-runtime] could not refresh SOUL.md:', e.message);
+      }
     }
   }
 

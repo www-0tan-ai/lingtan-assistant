@@ -240,7 +240,14 @@ function vendorPythonDeps({ force = false } = {}) {
   // Skip-if-fresh: vendoring is expensive (~80s download + extract)
   // and the requirements list rarely changes between dev iterations.
   // Bump the marker version to force re-vendoring.
-  const markerVersion = 1;
+  // v2 (2026-05-09): pin pip to cp311-win_amd64 wheels so the vendored
+  // pydantic-core / yaml / brotli native extensions match the bundled
+  // embeddable Python 3.11.9 ABI.  v1 was built against whatever Python
+  // was on PATH at the time (cp314 on this dev box), which produced
+  // `_pydantic_core.cp314-win_amd64.pyd` and made `from openai import
+  // OpenAI` raise `ModuleNotFoundError: pydantic_core._pydantic_core`
+  // on the user's machine.
+  const markerVersion = 2;
   const marker = path.join(PYDEPS_SEED, '.lingtan-pydeps.json');
   if (!force && fs.existsSync(marker)) {
     try {
@@ -261,12 +268,23 @@ function vendorPythonDeps({ force = false } = {}) {
     process.env.LINGTAN_PYTHON ||
     (process.platform === 'win32' ? 'python' : 'python3');
 
+  // Force pip to resolve wheels for the embed Python's exact ABI
+  // (cp311 / win_amd64).  Without these flags, pip uses the host
+  // Python's tag and happily downloads cp314 wheels for pydantic-core
+  // et al., which the bundled 3.11 embed cannot dlopen.
+  // `--only-binary=:all:` rejects sdists outright so we never fall
+  // through to a build that compiles against the host Python.
   const args = [
     '-m', 'pip', 'install',
     '--target', PYDEPS_SEED,
     '--no-cache-dir',
     '--disable-pip-version-check',
     '--upgrade',
+    '--python-version', '3.11',
+    '--platform', 'win_amd64',
+    '--abi', 'cp311',
+    '--implementation', 'cp',
+    '--only-binary=:all:',
     ...PIP_REQUIREMENTS,
   ];
 
@@ -321,6 +339,31 @@ function vendorPythonDeps({ force = false } = {}) {
     )
   );
   console.log(`[seed] python-deps/ vendored (purged ${purged} cache files)`);
+}
+
+function stampWebuiVersion() {
+  const apiDir = path.join(REPO_ROOT, 'hermes-webui', 'api');
+  if (!fs.existsSync(apiDir)) {
+    console.warn(`[seed] hermes-webui/api/ missing at ${apiDir} — skipping _version.py stamp`);
+    return;
+  }
+  const pkgJson = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')
+  );
+  const version = `lingtan-${pkgJson.version}-${Date.now()}`;
+  const body = [
+    '"""Auto-generated build stamp written by Lingtan Assistant build-seed.',
+    '',
+    'Used by api.updates._detect_webui_version() when the packaged dist has no',
+    '.git directory — without it WEBUI_VERSION resolves to "unknown" and the',
+    'browser Service Worker (sw.js) keys its cache on a constant string,',
+    'silently serving stale CSS/JS to end users across upgrades.',
+    '"""',
+    `__version__ = '${version}'`,
+    '',
+  ].join('\n');
+  fs.writeFileSync(path.join(apiDir, '_version.py'), body, 'utf8');
+  console.log(`[seed] wrote hermes-webui/api/_version.py = ${version}`);
 }
 
 function parseEnvFile(text) {
@@ -456,6 +499,17 @@ async function main() {
 
   // ── 5. Python deps vendoring (cached) ──────────────────────────────
   vendorPythonDeps({ force });
+
+  // ── 6. WebUI build-version stamp ───────────────────────────────────
+  // The packaged dist contains no .git, so api/updates.py:
+  // _detect_webui_version() falls back to api/_version.py and (failing
+  // that) returns 'unknown'.  Service Worker (sw.js) keys its cache on
+  // that string, so two consecutive builds end up with cache key
+  // `hermes-shell-unknown` and the user is permanently stuck on the
+  // first style.css/index.html ever cached.  We write a fresh
+  // _version.py per build so the SW cache invalidates and our CSS /
+  // HTML edits actually reach the browser.
+  stampWebuiVersion();
 
   console.log('[seed] done.');
 }

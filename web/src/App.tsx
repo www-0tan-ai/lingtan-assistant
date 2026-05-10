@@ -61,7 +61,6 @@ import DocsPage from "@/pages/DocsPage";
 import EnvPage from "@/pages/EnvPage";
 import SessionsPage from "@/pages/SessionsPage";
 import LogsPage from "@/pages/LogsPage";
-import AnalyticsPage from "@/pages/AnalyticsPage";
 import ModelsPage from "@/pages/ModelsPage";
 import CronPage from "@/pages/CronPage";
 import SkillsPage from "@/pages/SkillsPage";
@@ -97,7 +96,6 @@ const CHAT_NAV_ITEM: NavItem = {
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
   "/sessions": SessionsPage,
-  "/analytics": AnalyticsPage,
   "/models": ModelsPage,
   "/logs": LogsPage,
   "/cron": CronPage,
@@ -121,12 +119,6 @@ const BUILTIN_NAV_REST: NavItem[] = [
     labelKey: "sessions",
     label: "Sessions",
     icon: MessageSquare,
-  },
-  {
-    path: "/analytics",
-    labelKey: "analytics",
-    label: "Analytics",
-    icon: BarChart3,
   },
   {
     path: "/models",

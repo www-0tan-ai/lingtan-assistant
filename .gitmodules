@@ -1,6 +1,3 @@
 [submodule "tinker-atropos"]
 	path = tinker-atropos
 	url = https://github.com/nousresearch/tinker-atropos
-[submodule "zerocarbon-assistant-fronted"]
-	path = zerocarbon-assistant-fronted
-	url = git@github.com:www-0tan-ai/zerocarbon-assistant-fronted.git

@@ -12,7 +12,6 @@ __pycache__/
 .env.production.local
 .env.development
 .env.test
-deploy/.env
 export*
 __pycache__/model_tools.cpython-310.pyc
 __pycache__/web_tools.cpython-310.pyc
@@ -72,8 +71,6 @@ result
 website/static/api/skills-index.json
 models-dev-upstream/
 
-# PyInstaller (Windows EXE build: pyinstaller packaging/pyinstaller/hermes.spec)
-/build/
-/dist/
-# 0tan portable EXE (electron-builder)
-/dist-electron-pack/
+# Former git submodules — no longer tracked; clone separately if needed
+hermes-webui/
+zerocarbon-assistant-fronted/

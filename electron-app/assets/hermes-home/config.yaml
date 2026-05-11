@@ -1,0 +1,18 @@
+# Lingtan Assistant — canonical Hermes config for desktop seed builds.
+# Copied to seed/hermes-home/config.yaml by scripts/build-seed.cjs.
+# Edit this file in-repo to change the packaged default; secrets stay in ~/.hermes/.env at build time.
+
+_config_version: 23
+
+model:
+  provider: auto
+  default: gpt-4o-mini
+
+terminal:
+  backend: local
+  cwd: "."
+
+onboarding:
+  seen:
+    busy_input_prompt: true
+    openclaw_residue_cleanup: true

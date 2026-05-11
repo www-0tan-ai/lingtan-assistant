@@ -95,19 +95,20 @@ not need a system Python. Override the version with
 | `LINGTAN_DEV` | `1` to force devtools / dev-mode resource paths |
 | `LINGTAN_SETTINGS_PASSWORD` | (build-time only) Password to unlock the in-app Settings panel. Default `lingtan2026`. Only its SHA-256 is bundled. |
 | `LINGTAN_SKIP_SOUL_SEED_SYNC` | `1` / `true`: do not overwrite `hermes-home/SOUL.md` from bundled seed on each launch — use when tuning persona without rebuilding the installer (edit `%APPDATA%\...\hermes-home\SOUL.md`). |
-| `HERMES_HOME` | (build-time only, optional) Source dir to seed from when running `npm run seed`. Default `~/.hermes`. |
+| `HERMES_HOME` | (build-time only, optional) Directory whose `.env` is encrypted into `secrets.enc` when running `npm run seed`. Default `~/.hermes`. Does **not** affect `config.yaml` — that is always `assets/hermes-home/config.yaml`. |
 
 ## Bundled "zero-config" install (security-sensitive)
 
-`npm run seed` reads your local `~/.hermes/` (and the repo root) and
+`npm run seed` reads your local `~/.hermes/.env` (and the repo) and
 produces a `seed/` folder containing:
 
 - `seed/secrets.enc` — AES-256-GCM encrypted bundle of your `~/.hermes/.env`.
   Decrypted at runtime in `main.js` (`lib/seed-runtime.cjs`) and **only** injected as
   env vars into the Python child process — it is *never* written to disk
   on the end-user's machine.
-- `seed/hermes-home/config.yaml` — non-secret config copied verbatim
-  from `~/.hermes/config.yaml`.  Seeded into
+- `seed/hermes-home/config.yaml` — non-secret config copied from the
+  **repo template** `electron-app/assets/hermes-home/config.yaml` (not from
+  `~/.hermes/config.yaml`).  Seeded into
   `%APPDATA%\lingtan-assistant\hermes-home\` on first launch (strategy A:
   preserves user edits across launches).
 - `seed/hermes-agent/` — vendored copy of the agent source tree
@@ -128,8 +129,8 @@ Python so the user's system interpreter doesn't need any of the
 agent's runtime dependencies installed.
 
 `npm run dist` automatically runs `npm run seed` first (`predist` hook),
-so every release captures the *current* state of your local Hermes
-config.
+so every release captures the *current* bundled `config.yaml` template and
+your local `~/.hermes/.env` keys — not your personal `~/.hermes/config.yaml`.
 
 `seed/` is gitignored.  **Never commit it.**
 

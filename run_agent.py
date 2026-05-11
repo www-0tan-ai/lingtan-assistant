@@ -1498,9 +1498,17 @@ class AIAgent:
                         except Exception:
                             pass
                         if _lingtan_desktop_env():
+                            _extra = ""
+                            if _explicit == "azure-foundry":
+                                _extra = (
+                                    " Azure AI Foundry 还需要配置终结点：在「设置」中编辑 config，"
+                                    "设置 `providers.azure-foundry.base_url`，或在环境变量中设置 "
+                                    "`AZURE_FOUNDRY_BASE_URL`。"
+                                )
                             raise RuntimeError(
                                 f"当前配置使用提供方「{_explicit}」，但未检测到可用的 API 密钥。"
-                                "请打开左侧「设置」，在模型或提供方页面填写密钥并保存后再试。"
+                                "请打开左侧「设置」，在提供方页面保存 API 密钥后再试。"
+                                + _extra
                             )
                         raise RuntimeError(
                             f"Provider '{_explicit}' is set in config.yaml but no API key "
@@ -1510,8 +1518,10 @@ class AIAgent:
                     # No provider configured — reject with a clear message.
                     if _lingtan_desktop_env():
                         raise RuntimeError(
-                            "未配置可用的语言模型。请打开左侧「设置」(Settings)，"
-                            "选择提供方、添加 API 密钥并选定模型后再发送消息。"
+                            "未检测到可用的语言模型（没有可用的 API 密钥或自动发现失败）。"
+                            "请打开左侧「设置」→ 提供方：为所选服务填写密钥；"
+                            "若使用 Azure AI Foundry，还需配置 `AZURE_FOUNDRY_BASE_URL`（或 config 中的 "
+                            "`providers.azure-foundry.base_url`）。然后在模型选择器中选定模型后再试。"
                         )
                     raise RuntimeError(
                         "No LLM provider configured. Run `hermes model` to "

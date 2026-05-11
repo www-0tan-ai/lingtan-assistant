@@ -54,7 +54,58 @@ const SLIM_CHAT_CHROME_CSS = `
 .composer-footer #composerMobileConfigPanel{display:none!important;}
 `;
 
+/** WebUI omitted azure-foundry from _PROVIDER_ENV_VAR — Settings could not save keys (# Lingtan). */
+function patchAzureFoundryWebui() {
+  const providersPath = path.join(REPO_ROOT, 'hermes-webui', 'api', 'providers.py');
+  const configPath = path.join(REPO_ROOT, 'hermes-webui', 'api', 'config.py');
+  const envMarker = '"azure-foundry": "AZURE_FOUNDRY_API_KEY"';
+  const dispMarker = '"azure-foundry": "Azure AI Foundry"';
+
+  if (fs.existsSync(providersPath)) {
+    let text = fs.readFileSync(providersPath, 'utf8');
+    if (text.includes(envMarker)) {
+      console.log('[lingtan-webui] api/providers.py azure-foundry env mapping already present — skip');
+    } else {
+      const old = '    "nvidia": "NVIDIA_API_KEY",\n}';
+      const neu =
+        '    "nvidia": "NVIDIA_API_KEY",\n    "azure-foundry": "AZURE_FOUNDRY_API_KEY",\n}';
+      if (text.includes(old)) {
+        fs.writeFileSync(providersPath, text.replace(old, neu), 'utf8');
+        console.log('[lingtan-webui] patched api/providers.py (azure-foundry API key in Settings)');
+      } else {
+        console.warn(
+          '[lingtan-webui] api/providers.py: expected NVIDIA_API_KEY block not found — skip azure env patch',
+        );
+      }
+    }
+  } else {
+    console.warn('[lingtan-webui] api/providers.py missing — skip azure-foundry env patch');
+  }
+
+  if (fs.existsSync(configPath)) {
+    let text = fs.readFileSync(configPath, 'utf8');
+    if (text.includes(dispMarker)) {
+      console.log('[lingtan-webui] api/config.py azure-foundry display already present — skip');
+    } else {
+      const old = '    "nvidia": "NVIDIA NIM",\n}';
+      const neu = '    "nvidia": "NVIDIA NIM",\n    "azure-foundry": "Azure AI Foundry",\n}';
+      if (text.includes(old)) {
+        fs.writeFileSync(configPath, text.replace(old, neu), 'utf8');
+        console.log('[lingtan-webui] patched api/config.py (Azure AI Foundry display name)');
+      } else {
+        console.warn(
+          '[lingtan-webui] api/config.py: expected NVIDIA NIM display block not found — skip azure display patch',
+        );
+      }
+    }
+  } else {
+    console.warn('[lingtan-webui] api/config.py missing — skip azure-foundry display patch');
+  }
+}
+
 function main() {
+  patchAzureFoundryWebui();
+
   if (fs.existsSync(STYLE)) {
     let css = fs.readFileSync(STYLE, 'utf8');
     if (!css.includes(SLIM_CHAT_CHROME_MARKER)) {

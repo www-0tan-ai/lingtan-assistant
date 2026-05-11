@@ -27,6 +27,10 @@ const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
 const { encrypt, sha256Hex } = require('../lib/crypto-utils.cjs');
+const {
+  LINGTAN_NO_KEYS_YAML_BANNER,
+  neutralizeModelProviderWhenNoSecrets,
+} = require('../lib/lingtan-zero-keys-config.cjs');
 const { vendorPythonEmbed } = require('./vendor-python-embed.cjs');
 
 const HERMES_HOME =
@@ -480,23 +484,45 @@ async function main() {
 
   // ── 2. plaintext seed for HERMES_HOME ──────────────────────────────
   const cfg = readConfigYamlSanitized();
+  const outCfgPath = path.join(HERMES_HOME_SEED, 'config.yaml');
   if (cfg !== null) {
-    const out = path.join(HERMES_HOME_SEED, 'config.yaml');
-    fs.writeFileSync(out, cfg, 'utf8');
-    console.log(`[seed] hermes-home/config.yaml written (${cfg.length} bytes)`);
+    let cfgOut = cfg;
+    if (count === 0) {
+      cfgOut = neutralizeModelProviderWhenNoSecrets(cfg);
+      console.log(
+        '[seed] 0 bundled keys — adjusted config.yaml (root model.provider → auto if it was pinned)',
+      );
+    }
+    fs.writeFileSync(outCfgPath, cfgOut, 'utf8');
+    console.log(`[seed] hermes-home/config.yaml written (${cfgOut.length} bytes)`);
   } else {
     // Fallback minimal config so the agent still has *something* to read.
-    const fallback = [
-      'model:',
-      '  provider: openai',
-      '  default: gpt-4o-mini',
-      'onboarding:',
-      '  seen:',
-      '    busy_input_prompt: true',
-      '    openclaw_residue_cleanup: true',
-      '',
-    ].join('\n');
-    fs.writeFileSync(path.join(HERMES_HOME_SEED, 'config.yaml'), fallback);
+    // With no bundled keys, `openai` would fail the same way as azure-foundry;
+    // `auto` routes through the normal resolver and surfaces a generic prompt.
+    const fallback =
+      count === 0
+        ? [
+            LINGTAN_NO_KEYS_YAML_BANNER.trimEnd(),
+            'model:',
+            '  provider: auto',
+            '  default: ""',
+            'onboarding:',
+            '  seen:',
+            '    busy_input_prompt: true',
+            '    openclaw_residue_cleanup: true',
+            '',
+          ].join('\n')
+        : [
+            'model:',
+            '  provider: openai',
+            '  default: gpt-4o-mini',
+            'onboarding:',
+            '  seen:',
+            '    busy_input_prompt: true',
+            '    openclaw_residue_cleanup: true',
+            '',
+          ].join('\n');
+    fs.writeFileSync(outCfgPath, fallback, 'utf8');
     console.log('[seed] hermes-home/config.yaml: fallback minimal config used');
   }
 

@@ -23,6 +23,9 @@
 const fs = require('fs');
 const path = require('path');
 const { decrypt } = require('./crypto-utils.cjs');
+const {
+  maybePatchHermesHomeForZeroBundledKeys,
+} = require('./lingtan-zero-keys-config.cjs');
 
 function _resolveSeedDir(app) {
   // Packaged build: resources/seed/...
@@ -131,6 +134,9 @@ function loadSeed(app) {
 
   const hermesHome = ensureHermesHome(seedDir, app.getPath('userData'));
 
+  const secretCount = Object.keys(bundle.secrets || {}).length;
+  maybePatchHermesHomeForZeroBundledKeys(hermesHome, secretCount);
+
   const extraEnv = {
     HERMES_HOME: hermesHome,
     // L3 promise: the API keys live ONLY in this in-memory env block,
@@ -142,7 +148,7 @@ function loadSeed(app) {
     extraEnv,
     settingsPasswordHash: bundle.settingsPasswordHash || null,
     hermesHome,
-    secretCount: Object.keys(bundle.secrets || {}).length,
+    secretCount,
   };
 }
 

@@ -244,20 +244,22 @@ function vendorPythonDeps({ force = false } = {}) {
   // Skip-if-fresh: vendoring is expensive (~80s download + extract)
   // and the requirements list rarely changes between dev iterations.
   // Bump the marker version to force re-vendoring.
-  // v2 (2026-05-09): pin pip to cp311-win_amd64 wheels so the vendored
-  // pydantic-core / yaml / brotli native extensions match the bundled
-  // embeddable Python 3.11.9 ABI.  v1 was built against whatever Python
-  // was on PATH at the time (cp314 on this dev box), which produced
-  // `_pydantic_core.cp314-win_amd64.pyd` and made `from openai import
-  // OpenAI` raise `ModuleNotFoundError: pydantic_core._pydantic_core`
-  // on the user's machine.
-  const markerVersion = 2;
+  // v2 (2026-05-09): pin pip to cp311-win_amd64 wheels for Windows embed.
+  // v3 (2026-05-12): macOS/Linux use native pip (no win_amd64 cross-tag);
+  // marker records vendorHost so switching OS forces a rebuild.
+  const markerVersion = 3;
+  const vendorHost = `${process.platform}-${process.arch}`;
   const marker = path.join(PYDEPS_SEED, '.lingtan-pydeps.json');
   if (!force && fs.existsSync(marker)) {
     try {
       const meta = JSON.parse(fs.readFileSync(marker, 'utf8'));
-      if (meta.version === markerVersion) {
-        console.log(`[seed] python-deps/ already up to date (version ${meta.version}) — skipping pip install`);
+      if (
+        meta.version === markerVersion &&
+        meta.vendorHost === vendorHost
+      ) {
+        console.log(
+          `[seed] python-deps/ already up to date (version ${meta.version}, ${vendorHost}) — skipping pip install`
+        );
         return;
       }
     } catch { /* fall through and rebuild */ }
@@ -272,25 +274,34 @@ function vendorPythonDeps({ force = false } = {}) {
     process.env.LINGTAN_PYTHON ||
     (process.platform === 'win32' ? 'python' : 'python3');
 
-  // Force pip to resolve wheels for the embed Python's exact ABI
-  // (cp311 / win_amd64).  Without these flags, pip uses the host
-  // Python's tag and happily downloads cp314 wheels for pydantic-core
-  // et al., which the bundled 3.11 embed cannot dlopen.
-  // `--only-binary=:all:` rejects sdists outright so we never fall
-  // through to a build that compiles against the host Python.
-  const args = [
-    '-m', 'pip', 'install',
-    '--target', PYDEPS_SEED,
-    '--no-cache-dir',
-    '--disable-pip-version-check',
-    '--upgrade',
-    '--python-version', '3.11',
-    '--platform', 'win_amd64',
-    '--abi', 'cp311',
-    '--implementation', 'cp',
-    '--only-binary=:all:',
-    ...PIP_REQUIREMENTS,
-  ];
+  // Windows: force cp311 + win_amd64 wheels for the bundled embeddable
+  // interpreter (see vendor-python-embed.cjs).  macOS/Linux DMG/dev: use
+  // the host interpreter's wheel tags so native .so/.dylib match runtime.
+  let args;
+  if (process.platform === 'win32') {
+    args = [
+      '-m', 'pip', 'install',
+      '--target', PYDEPS_SEED,
+      '--no-cache-dir',
+      '--disable-pip-version-check',
+      '--upgrade',
+      '--python-version', '3.11',
+      '--platform', 'win_amd64',
+      '--abi', 'cp311',
+      '--implementation', 'cp',
+      '--only-binary=:all:',
+      ...PIP_REQUIREMENTS,
+    ];
+  } else {
+    args = [
+      '-m', 'pip', 'install',
+      '--target', PYDEPS_SEED,
+      '--no-cache-dir',
+      '--disable-pip-version-check',
+      '--upgrade',
+      ...PIP_REQUIREMENTS,
+    ];
+  }
 
   const result = spawnSync(pythonExe, args, {
     stdio: 'inherit',
@@ -335,6 +346,7 @@ function vendorPythonDeps({ force = false } = {}) {
     JSON.stringify(
       {
         version: markerVersion,
+        vendorHost,
         builtAt: new Date().toISOString(),
         requirements: PIP_REQUIREMENTS,
       },

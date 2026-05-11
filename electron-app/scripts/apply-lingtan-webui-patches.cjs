@@ -14,8 +14,42 @@ const path = require('path');
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const INDEX = path.join(REPO_ROOT, 'hermes-webui', 'static', 'index.html');
 const PANELS = path.join(REPO_ROOT, 'hermes-webui', 'static', 'panels.js');
+const STYLE = path.join(REPO_ROOT, 'hermes-webui', 'static', 'style.css');
+
+const SLIM_CHAT_CHROME_MARKER = '/* lingtan-slim-chat-chrome';
+const SLIM_CHAT_CHROME_CSS = `
+
+/* lingtan-slim-chat-chrome — Lingtan Assistant: hide sidebar project strip (All / Unassigned / +)
+   and the bottom composer controls row (profile, workspace, model, reasoning, toolsets, mic). */
+#sessionList .project-bar{display:none!important;}
+.composer-box #micStatus,.composer-box #voiceModeBar{display:none!important;}
+.composer-footer .composer-left #btnMic,
+.composer-footer .composer-left #btnVoiceMode,
+.composer-footer .composer-left .composer-divider,
+.composer-footer .composer-left #yoloPill,
+.composer-footer .composer-left .composer-profile-wrap,
+.composer-footer .composer-left .composer-ws-wrap,
+.composer-footer .composer-model-wrap,
+.composer-footer #composerReasoningWrap,
+.composer-footer #composerToolsetsWrap,
+.composer-footer #composerMobileConfigBtn,
+.composer-footer #composerMobileConfigPanel{display:none!important;}
+`;
 
 function main() {
+  if (fs.existsSync(STYLE)) {
+    let css = fs.readFileSync(STYLE, 'utf8');
+    if (!css.includes(SLIM_CHAT_CHROME_MARKER)) {
+      css += SLIM_CHAT_CHROME_CSS;
+      fs.writeFileSync(STYLE, css, 'utf8');
+      console.log('[lingtan-webui] appended slim chat chrome rules to style.css');
+    } else {
+      console.log('[lingtan-webui] slim chat chrome CSS already present — skip style.css');
+    }
+  } else {
+    console.warn('[lingtan-webui] style.css missing — skip slim chat chrome patch');
+  }
+
   if (!fs.existsSync(INDEX) || !fs.existsSync(PANELS)) {
     console.warn('[lingtan-webui] hermes-webui/static missing — skip Lingtan UI patches');
     return;

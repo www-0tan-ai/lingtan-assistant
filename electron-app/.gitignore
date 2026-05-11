@@ -3,6 +3,9 @@ dist/
 out/
 *.log
 
+# Local env for `npm run dev` (see scripts/run-dev.cjs)
+.env.dev
+
 # Build-time seed bundle — generated from the developer's local
 # ~/.hermes/.env by `npm run seed`.  Contains AES-encrypted real API
 # keys — must NEVER land in git.

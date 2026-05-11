@@ -8,7 +8,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dev": "cross-env LINGTAN_DEV=1 electron .",
+    "dev": "node scripts/run-dev.cjs",
     "seed": "node scripts/build-seed.cjs",
     "predist": "node scripts/apply-lingtan-webui-patches.cjs && node scripts/build-seed.cjs",
     "predist:portable": "node scripts/apply-lingtan-webui-patches.cjs && node scripts/build-seed.cjs",

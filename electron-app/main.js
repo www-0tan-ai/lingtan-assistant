@@ -375,7 +375,12 @@ function startPythonServer(port) {
   }
   flog(`PYTHONPATH  = ${env.PYTHONPATH || '(empty)'}`);
   flog(`HERMES_WEBUI_AGENT_DIR = ${env.HERMES_WEBUI_AGENT_DIR}`);
-  flog(`AZURE_FOUNDRY_API_KEY  = ${env.AZURE_FOUNDRY_API_KEY ? '<set len=' + env.AZURE_FOUNDRY_API_KEY.length + '>' : '<MISSING>'}`);
+  const _keyProbe = (n) => {
+    const v = env[n];
+    return v ? `<set len=${String(v).length}>` : '<MISSING>';
+  };
+  flog(`DEEPSEEK_API_KEY       = ${_keyProbe('DEEPSEEK_API_KEY')}`);
+  flog(`AZURE_FOUNDRY_API_KEY  = ${_keyProbe('AZURE_FOUNDRY_API_KEY')}`);
   flog(`AZURE_FOUNDRY_BASE_URL = ${env.AZURE_FOUNDRY_BASE_URL || '<MISSING>'}`);
 
   const proc = spawn(python, ['server.py'], {

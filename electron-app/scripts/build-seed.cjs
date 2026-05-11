@@ -437,6 +437,32 @@ function readConfigYamlSanitized() {
   return fs.readFileSync(cfgPath, 'utf8');
 }
 
+/**
+ * Fail the build early when the bundled config pins a provider but the
+ * corresponding API key is missing from HERMES_HOME/.env (avoids installers
+ * that "work" until the first chat message).
+ */
+function validateBundledKeysForSeedConfig(cfgText, secrets, hermesHome) {
+  if (!cfgText || typeof cfgText !== 'string' || !secrets || typeof secrets !== 'object') {
+    return;
+  }
+  const has = (k) => Boolean(secrets[k] && String(secrets[k]).trim());
+  const envHint = path.join(hermesHome, '.env');
+  // Root `model:` block is always near the top of our seed YAML; keep this heuristic simple.
+  if (/model:\s*[\s\S]*?provider:\s*deepseek\b/.test(cfgText) && !has('DEEPSEEK_API_KEY')) {
+    throw new Error(
+      `[seed] model.provider is deepseek but DEEPSEEK_API_KEY is missing from bundled secrets.\n` +
+        `  Add DEEPSEEK_API_KEY=... to ${envHint} then rebuild (npm run seed / npm run dist).`
+    );
+  }
+  if (/model:\s*[\s\S]*?provider:\s*azure-foundry\b/.test(cfgText) && !has('AZURE_FOUNDRY_API_KEY')) {
+    throw new Error(
+      `[seed] model.provider is azure-foundry but AZURE_FOUNDRY_API_KEY is missing from bundled secrets.\n` +
+        `  Add AZURE_FOUNDRY_API_KEY=... to ${envHint} then rebuild.`
+    );
+  }
+}
+
 async function main() {
   const force = process.argv.includes('--force');
   console.log(`[seed] HERMES_HOME = ${HERMES_HOME}`);
@@ -456,8 +482,8 @@ async function main() {
   // expected to ship the developer's API keys baked in (that's the
   // whole point of "open the .exe and it just chats").  A 0-key
   // build looks fine in the installer but explodes the moment the
-  // user sends a message with `RuntimeError: Provider 'azure-foundry'
-  // is set in config.yaml but no API key was found`.  This guard
+  // user sends a message with `RuntimeError: Provider 'deepseek' /
+  // 'azure-foundry' is set in config.yaml but no API key was found`.  This guard
   // caught a real regression where a stray HERMES_HOME export from a
   // smoke test pointed build-seed at an empty temp dir.
   // Use --allow-empty-secrets if you genuinely want a bring-your-own
@@ -474,6 +500,12 @@ async function main() {
         `  --allow-empty-secrets if a key-less build is what you actually want.`
     );
   }
+
+  const cfg = readConfigYamlSanitized();
+  if (count > 0) {
+    validateBundledKeysForSeedConfig(cfg, secrets, HERMES_HOME);
+  }
+
   const bundle = {
     v: 1,
     builtAt: new Date().toISOString(),
@@ -489,7 +521,6 @@ async function main() {
   );
 
   // ── 2. plaintext seed for HERMES_HOME ──────────────────────────────
-  const cfg = readConfigYamlSanitized();
   const outCfgPath = path.join(HERMES_HOME_SEED, 'config.yaml');
   if (cfg !== null) {
     let cfgOut = cfg;

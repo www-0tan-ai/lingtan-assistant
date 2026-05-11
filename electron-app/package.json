@@ -10,9 +10,9 @@
     "start": "electron .",
     "dev": "cross-env LINGTAN_DEV=1 electron .",
     "seed": "node scripts/build-seed.cjs",
-    "predist": "node scripts/build-seed.cjs",
-    "predist:portable": "node scripts/build-seed.cjs",
-    "predist:dir": "node scripts/build-seed.cjs",
+    "predist": "node scripts/apply-lingtan-webui-patches.cjs && node scripts/build-seed.cjs",
+    "predist:portable": "node scripts/apply-lingtan-webui-patches.cjs && node scripts/build-seed.cjs",
+    "predist:dir": "node scripts/apply-lingtan-webui-patches.cjs && node scripts/build-seed.cjs",
     "dist": "electron-builder --win",
     "dist:portable": "electron-builder --win portable",
     "dist:dir": "electron-builder --dir"

@@ -2805,7 +2805,12 @@ class AIAgent:
             url = str(base_url).lower()
         else:
             url = getattr(self, "_base_url_lower", "") or ""
-        return "openai.azure.com" in url
+        if "openai.azure.com" in url:
+            return True
+        # Azure AI Foundry project endpoints (OpenAI-compatible /openai/v1)
+        if "services.ai.azure.com" in url and "/openai/" in url:
+            return True
+        return False
 
     def _resolved_api_call_timeout(self) -> float:
         """Resolve the effective per-call request timeout in seconds.

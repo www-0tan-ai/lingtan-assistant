@@ -2658,6 +2658,16 @@ def get_auxiliary_extra_body() -> dict:
     return dict(NOUS_EXTRA_BODY) if auxiliary_is_nous else {}
 
 
+def _custom_openai_wire_uses_max_completion_tokens(base_url: Optional[str]) -> bool:
+    """True when an OpenAI-compatible custom base URL expects max_completion_tokens."""
+    if not base_url:
+        return False
+    if base_url_hostname(base_url) == "api.openai.com":
+        return True
+    low = str(base_url).lower()
+    return "azure.com" in low and "/openai/" in low
+
+
 def auxiliary_max_tokens_param(value: int) -> dict:
     """Return the correct max tokens kwarg for the auxiliary client's provider.
     
@@ -2668,10 +2678,8 @@ def auxiliary_max_tokens_param(value: int) -> dict:
     """
     custom_base = _current_custom_base_url()
     or_key = os.getenv("OPENROUTER_API_KEY")
-    # Only use max_completion_tokens for direct OpenAI custom endpoints
-    if (not or_key
-            and _read_nous_auth() is None
-            and base_url_hostname(custom_base) == "api.openai.com"):
+    # max_completion_tokens for direct OpenAI + Azure OpenAI / Foundry OpenAI routes
+    if not or_key and _read_nous_auth() is None and _custom_openai_wire_uses_max_completion_tokens(custom_base):
         return {"max_completion_tokens": value}
     return {"max_tokens": value}
 
@@ -3192,10 +3200,10 @@ def _build_call_kwargs(
 
     if max_tokens is not None:
         # Codex adapter handles max_tokens internally; OpenRouter/Nous use max_tokens.
-        # Direct OpenAI api.openai.com with newer models needs max_completion_tokens.
+        # Direct OpenAI api.openai.com + Azure OpenAI / Foundry need max_completion_tokens.
         if provider == "custom":
             custom_base = base_url or _current_custom_base_url()
-            if base_url_hostname(custom_base) == "api.openai.com":
+            if _custom_openai_wire_uses_max_completion_tokens(custom_base):
                 kwargs["max_completion_tokens"] = max_tokens
             else:
                 kwargs["max_tokens"] = max_tokens

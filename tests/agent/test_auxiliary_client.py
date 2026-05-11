@@ -1116,6 +1116,24 @@ class TestKimiTemperatureOmitted:
         assert "temperature" not in kwargs
 
 
+class TestCustomAzureFoundryMaxTokens:
+    def test_custom_azure_foundry_uses_max_completion_tokens(self):
+        """Azure AI Foundry OpenAI v1 rejects max_tokens for gpt-5.x — use max_completion_tokens."""
+        from agent.auxiliary_client import _build_call_kwargs
+
+        kwargs = _build_call_kwargs(
+            provider="custom",
+            model="gpt-5.4-nano",
+            messages=[{"role": "user", "content": "hello"}],
+            max_tokens=128,
+            base_url=(
+                "https://www-0504-resource.services.ai.azure.com/api/projects/www-0504/openai/v1"
+            ),
+        )
+        assert kwargs.get("max_completion_tokens") == 128
+        assert "max_tokens" not in kwargs
+
+
 # ---------------------------------------------------------------------------
 # async_call_llm payment / connection fallback (#7512 bug 2)
 # ---------------------------------------------------------------------------

@@ -3486,6 +3486,14 @@ class TestMaxTokensParam:
         result = agent._max_tokens_param(4096)
         assert result == {"max_completion_tokens": 4096}
 
+    def test_returns_max_completion_tokens_for_azure_ai_foundry(self, agent):
+        """Azure AI Foundry project OpenAI v1 routes use max_completion_tokens."""
+        agent.base_url = (
+            "https://www-0504-resource.services.ai.azure.com/api/projects/www-0504/openai/v1"
+        )
+        result = agent._max_tokens_param(4096)
+        assert result == {"max_completion_tokens": 4096}
+
 
 class TestAzureOpenAIRouting:
     """Verify Azure OpenAI endpoints stay on chat_completions for gpt-5.x."""
@@ -3496,6 +3504,26 @@ class TestAzureOpenAIRouting:
         agent.api_mode = "chat_completions"
         agent.model = "gpt-5.4-mini"
         # Mirror the routing logic from __init__
+        if (
+            agent.api_mode == "chat_completions"
+            and not agent._is_azure_openai_url()
+            and (
+                agent._is_direct_openai_url()
+                or agent._provider_model_requires_responses_api(
+                    agent.model, provider=agent.provider,
+                )
+            )
+        ):
+            agent.api_mode = "codex_responses"
+        assert agent.api_mode == "chat_completions"
+
+    def test_foundry_gpt5_stays_on_chat_completions(self, agent):
+        """Azure AI Foundry serves gpt-5.x on chat_completions like regional Azure OpenAI."""
+        agent.base_url = (
+            "https://www-0504-resource.services.ai.azure.com/api/projects/www-0504/openai/v1"
+        )
+        agent.api_mode = "chat_completions"
+        agent.model = "gpt-5.4-mini"
         if (
             agent.api_mode == "chat_completions"
             and not agent._is_azure_openai_url()
@@ -3531,6 +3559,9 @@ class TestAzureOpenAIRouting:
         assert agent._is_azure_openai_url("https://foo.openai.azure.com/openai/v1") is True
         assert agent._is_azure_openai_url("https://api.openai.com/v1") is False
         assert agent._is_azure_openai_url("https://openrouter.ai/api/v1") is False
+        assert agent._is_azure_openai_url(
+            "https://www-0504-resource.services.ai.azure.com/api/projects/www-0504/openai/v1"
+        ) is True
         # Path-embedded azure string should still detect — we're ~substring matching
         agent.base_url = "https://my-resource.openai.azure.com/openai/v1"
         assert agent._is_azure_openai_url() is True

@@ -274,6 +274,115 @@ def _get_proxy_for_base_url(base_url: Optional[str]) -> Optional[str]:
     return proxy
 
 
+def _lingtan_model_call_logging_enabled() -> bool:
+    """Emit structured INFO logs before outbound LLM calls (Lingtan desktop default).
+
+    - Unset: enabled when ``LINGTAN_BRANDING=1`` (Electron ``main.js`` sets this).
+    - ``LINGTAN_LOG_MODEL_CALL=1|true|yes|on``: force on.
+    - ``LINGTAN_LOG_MODEL_CALL=0|false|no|off``: force off.
+    """
+    raw = (os.environ.get("LINGTAN_LOG_MODEL_CALL") or "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    return os.environ.get("LINGTAN_BRANDING") == "1"
+
+
+def _lingtan_summarize_llm_kwargs_for_log(api_kwargs: Optional[dict]) -> dict:
+    """JSON-serializable view of request kwargs: no message bodies, no tool schemas, no secrets."""
+
+    def _roles_and_chars(msgs: Any) -> dict:
+        if not isinstance(msgs, list):
+            return {"error": type(msgs).__name__}
+        roles: List[str] = []
+        for m in msgs:
+            if isinstance(m, dict):
+                roles.append(str(m.get("role") or "?"))
+            else:
+                roles.append(type(m).__name__)
+        approx = sum(len(str(m)) for m in msgs)
+        return {"count": len(msgs), "roles": roles, "approx_chars": approx}
+
+    def _tool_names(tools: Any) -> dict:
+        if not isinstance(tools, list):
+            return {"error": type(tools).__name__}
+        names: List[str] = []
+        for t in tools:
+            if not isinstance(t, dict):
+                names.append(type(t).__name__)
+                continue
+            fn = t.get("function")
+            if isinstance(fn, dict) and fn.get("name"):
+                names.append(str(fn["name"]))
+            elif t.get("name"):
+                names.append(str(t["name"]))
+            else:
+                names.append("?")
+        return {"count": len(tools), "names": names}
+
+    if not isinstance(api_kwargs, dict):
+        return {"api_kwargs_type": type(api_kwargs).__name__}
+
+    sensitive = ("key", "secret", "token", "password", "auth", "credential", "bearer")
+    out: Dict[str, Any] = {"request_keys": sorted(api_kwargs.keys())}
+
+    for key, val in api_kwargs.items():
+        lk = str(key).lower()
+        if key.startswith("__") and key.endswith("__"):
+            out[key] = val
+            continue
+        if any(s in lk for s in sensitive):
+            if val in (None, ""):
+                out[key] = val
+            elif isinstance(val, str):
+                out[key] = f"<str len={len(val)}>"
+            else:
+                out[key] = "<redacted>"
+            continue
+        if key == "messages":
+            out["messages"] = _roles_and_chars(val)
+            continue
+        if key == "tools":
+            out["tools"] = _tool_names(val)
+            continue
+        if key == "input" and isinstance(val, list):
+            out["input"] = {
+                "count": len(val),
+                "types": [type(x).__name__ for x in val[:24]],
+            }
+            continue
+        if isinstance(val, (bool, int, float)) or val is None:
+            out[key] = val
+            continue
+        if isinstance(val, str):
+            out[key] = val if len(val) <= 240 else f"{val[:200]}...<len={len(val)}>"
+            continue
+        if isinstance(val, dict):
+            inner: Dict[str, Any] = {}
+            for ik, iv in val.items():
+                il = str(ik).lower()
+                if any(s in il for s in sensitive):
+                    inner[ik] = "<redacted>" if iv not in (None, "") else iv
+                elif isinstance(iv, (bool, int, float)) or iv is None:
+                    inner[ik] = iv
+                elif isinstance(iv, str):
+                    inner[ik] = iv if len(iv) <= 160 else f"<str len={len(iv)}>"
+                else:
+                    inner[ik] = {"type": type(iv).__name__}
+            out[key] = inner
+            continue
+        if isinstance(val, list):
+            if len(val) <= 12:
+                out[key] = [type(x).__name__ for x in val]
+            else:
+                out[key] = {"count": len(val), "types": [type(x).__name__ for x in val[:8]]}
+            continue
+        out[key] = {"type": type(val).__name__}
+
+    return out
+
+
 def _install_safe_stdio() -> None:
     """Wrap stdout/stderr so best-effort console output cannot crash the agent."""
     for stream_name in ("stdout", "stderr"):
@@ -8258,6 +8367,28 @@ class AIAgent:
                     content[-1]["cache_control"] = {"type": "ephemeral"}
                 break
 
+    def _log_lingtan_outbound_model_call(self, api_kwargs: Optional[dict]) -> None:
+        """Structured INFO log of outbound LLM parameters (no secrets / no prompt bodies)."""
+        if not _lingtan_model_call_logging_enabled():
+            return
+        try:
+            blob: Dict[str, Any] = {
+                "event": "lingtan_llm_request",
+                "provider": self.provider,
+                "api_mode": self.api_mode,
+                "agent_model": self.model,
+                "base_url": self.base_url,
+                "session_id": self.session_id,
+                "api_iteration": getattr(self, "_api_call_count", None),
+                "request_timeout_s": self._resolved_api_call_timeout(),
+                "max_tokens_config": self.max_tokens,
+                "reasoning_config": self.reasoning_config,
+                "request": _lingtan_summarize_llm_kwargs_for_log(api_kwargs),
+            }
+            logger.info("lingtan_llm_request %s", json.dumps(blob, ensure_ascii=False, default=str))
+        except Exception as exc:
+            logger.debug("lingtan_llm_request logging failed: %s", exc)
+
     def _build_api_kwargs(self, api_messages: list) -> dict:
         """Build the keyword arguments dict for the active API mode."""
         if self.api_mode == "anthropic_messages":
@@ -10936,6 +11067,8 @@ class AIAgent:
                         _sanitize_structure_non_ascii(api_kwargs)
                     if self.api_mode == "codex_responses":
                         api_kwargs = self._get_transport().preflight_kwargs(api_kwargs, allow_stream=False)
+
+                    self._log_lingtan_outbound_model_call(api_kwargs)
 
                     try:
                         from hermes_cli.plugins import invoke_hook as _invoke_hook

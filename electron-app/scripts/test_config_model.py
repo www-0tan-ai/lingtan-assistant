@@ -21,6 +21,10 @@ human-readable blocks are omitted so you can pipe to jq or save to a file.
 Prove end-to-end config + keys with a real model call:
 
   .venv\\Scripts\\python.exe electron-app\\scripts\\test_config_model.py --env %USERPROFILE%\\.hermes\\.env --ping-model --strict
+
+Note: The first revision of this script only ran resolve_runtime_provider() (no HTTP).
+The live ping uses the same Codex preflight as run_agent (preflight_kwargs) so Azure
+and other strict backends never see a JSON null for ``tools``.
 """
 
 from __future__ import annotations
@@ -137,12 +141,9 @@ def _ping_model_live(
                     "output only the requested word, no punctuation or explanation."
                 ),
             )
-            if kwargs.get("tools") is None:
-                kwargs.pop("tool_choice", None)
-                kwargs.pop("parallel_tool_calls", None)
-                kwargs.pop("tools", None)
-            # Azure Foundry rejects explicit null for optional fields (e.g. tools must be array or omitted).
-            kwargs = {k: v for k, v in kwargs.items() if v is not None}
+            # Match run_agent: _preflight_codex_api_kwargs omits ``tools`` when there are none
+            # (avoids Azure 400: /tools must be array, not null).
+            kwargs = transport.preflight_kwargs(kwargs, allow_stream=False)
             resp = client.responses.create(**kwargs)
             text = _extract_responses_text(resp)
             if not text:

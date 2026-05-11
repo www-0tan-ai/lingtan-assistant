@@ -14,11 +14,15 @@ Exit code 0 if YAML parses and load_config succeeds; runtime resolution errors a
 but do not change exit code unless --strict is set.
 
 Use --skip-resolve to only check YAML + load_config (no API keys required).
+
+Use --json to print one JSON object on stdout (raw_model, merged_model, resolve);
+human-readable blocks are omitted so you can pipe to jq or save to a file.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -38,6 +42,36 @@ def _clear_config_caches() -> None:
     hc._LOAD_CONFIG_CACHE.clear()
     hc._RAW_CONFIG_CACHE.clear()
     hc._LAST_EXPANDED_CONFIG_BY_PATH.clear()
+
+
+def _json_safe_model(d: object) -> object:
+    if not isinstance(d, dict):
+        return d
+    out = {}
+    for k, v in d.items():
+        lk = str(k).lower()
+        if "key" in lk or "secret" in lk or "password" in lk:
+            out[k] = f"<redacted len={len(str(v))}>" if v else v
+        else:
+            out[k] = v
+    return out
+
+
+def _json_safe_runtime(rt: dict) -> dict:
+    """Strip non-JSON-serializable objects from resolve_runtime_provider result."""
+    out = {}
+    for k, v in rt.items():
+        if k == "api_key":
+            out[k] = (f"<set len={len(str(v))}>" if v else "")
+        elif k == "credential_pool":
+            out[k] = bool(v)
+        else:
+            try:
+                json.dumps(v)
+                out[k] = v
+            except (TypeError, ValueError):
+                out[k] = repr(v)
+    return out
 
 
 def _load_env_file(path: Path) -> None:
@@ -89,6 +123,12 @@ def main() -> int:
         action="store_true",
         help="Skip resolve_runtime_provider() (no API keys needed; tests YAML + load_config only)",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_out",
+        help="Print a single JSON result on stdout (omit human-readable sections)",
+    )
     args = parser.parse_args()
 
     root = _repo_root()
@@ -115,16 +155,21 @@ def main() -> int:
         return 1
 
     raw_model = raw_doc.get("model")
-    print("=== Raw YAML: model ===")
-    if raw_model is None:
-        print("  (missing top-level 'model:' — Hermes will use defaults from DEFAULT_CONFIG only)")
-    elif isinstance(raw_model, dict):
-        for k in sorted(raw_model.keys()):
-            print(f"  {k}: {raw_model[k]!r}")
-    else:
-        print(f"  (unexpected type {type(raw_model).__name__!r}, value {raw_model!r})")
+    if not args.json_out:
+        print("=== Raw YAML: model ===")
+        if raw_model is None:
+            print("  (missing top-level 'model:' — Hermes will use defaults from DEFAULT_CONFIG only)")
+        elif isinstance(raw_model, dict):
+            for k in sorted(raw_model.keys()):
+                print(f"  {k}: {raw_model[k]!r}")
+        else:
+            print(f"  (unexpected type {type(raw_model).__name__!r}, value {raw_model!r})")
 
     tmp = Path(tempfile.mkdtemp(prefix="lingtan-config-test-"))
+    json_payload: dict = {
+        "config_path": str(cfg_path),
+        "raw_model": raw_model if isinstance(raw_model, (dict, type(None))) else repr(raw_model),
+    }
     try:
         os.environ["HERMES_HOME"] = str(tmp)
         shutil.copy(cfg_path, tmp / "config.yaml")
@@ -142,44 +187,64 @@ def main() -> int:
 
         merged = hc.load_config()
         model_merged = merged.get("model") or {}
-        print("\n=== After load_config() merge + normalize (model keys) ===")
-        if not isinstance(model_merged, dict):
-            print(f"  (unexpected: model is {type(model_merged).__name__})")
-        else:
-            for k in sorted(model_merged.keys()):
-                v = model_merged[k]
-                lk = k.lower()
-                if "key" in lk or "secret" in lk or "password" in lk:
-                    v = "<redacted>" if v else v
-                print(f"  {k}: {v!r}")
+        json_payload["merged_model"] = _json_safe_model(
+            model_merged if isinstance(model_merged, dict) else {"_error": type(model_merged).__name__}
+        )
+
+        if not args.json_out:
+            print("\n=== After load_config() merge + normalize (model keys) ===")
+            if not isinstance(model_merged, dict):
+                print(f"  (unexpected: model is {type(model_merged).__name__})")
+            else:
+                for k in sorted(model_merged.keys()):
+                    v = model_merged[k]
+                    lk = k.lower()
+                    if "key" in lk or "secret" in lk or "password" in lk:
+                        v = "<redacted>" if v else v
+                    print(f"  {k}: {v!r}")
 
         if args.skip_resolve:
-            print("\n=== resolve_runtime_provider() ===")
-            print("  (skipped --skip-resolve)")
+            json_payload["resolve"] = {"skipped": True}
+            if args.json_out:
+                print(json.dumps(json_payload, ensure_ascii=False, indent=2))
+            else:
+                print("\n=== resolve_runtime_provider() ===")
+                print("  (skipped --skip-resolve)")
             return 0
 
-        print("\n=== resolve_runtime_provider() ===")
+        if not args.json_out:
+            print("\n=== resolve_runtime_provider() ===")
         from hermes_cli.runtime_provider import resolve_runtime_provider
 
         try:
             rt = resolve_runtime_provider()
         except Exception as e:
-            print(f"  FAILED: {e}")
-            if args.traceback:
-                traceback.print_exc()
+            json_payload["resolve"] = {"ok": False, "error": str(e)}
+            if args.json_out:
+                print(json.dumps(json_payload, ensure_ascii=False, indent=2))
+            else:
+                print(f"  FAILED: {e}")
+                if args.traceback:
+                    traceback.print_exc()
             return 1 if args.strict else 0
 
-        for k in sorted(rt.keys()):
-            v = rt[k]
-            if k == "api_key" and v:
-                s = str(v)
-                print(f"  {k}: <set, length {len(s)}>")
-            else:
-                print(f"  {k}: {v!r}")
+        json_payload["resolve"] = {"ok": True, "runtime": _json_safe_runtime(rt)}
+
+        if args.json_out:
+            print(json.dumps(json_payload, ensure_ascii=False, indent=2))
+        else:
+            for k in sorted(rt.keys()):
+                v = rt[k]
+                if k == "api_key" and v:
+                    s = str(v)
+                    print(f"  {k}: <set, length {len(s)}>")
+                else:
+                    print(f"  {k}: {v!r}")
 
     finally:
         if args.keep_hermes_home:
-            print(f"\n(temp HERMES_HOME kept at {tmp})")
+            msg = f"\n(temp HERMES_HOME kept at {tmp})"
+            print(msg, file=sys.stderr if args.json_out else sys.stdout)
         else:
             shutil.rmtree(tmp, ignore_errors=True)
 

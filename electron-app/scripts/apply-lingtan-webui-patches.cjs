@@ -14,7 +14,25 @@ const path = require('path');
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const INDEX = path.join(REPO_ROOT, 'hermes-webui', 'static', 'index.html');
 const PANELS = path.join(REPO_ROOT, 'hermes-webui', 'static', 'panels.js');
+const BOOT = path.join(REPO_ROOT, 'hermes-webui', 'static', 'boot.js');
 const STYLE = path.join(REPO_ROOT, 'hermes-webui', 'static', 'style.css');
+
+/** Home empty-state .suggestion buttons: send localized prompt + robust async send(). */
+const SUGGESTION_BOOT_MARKER = "const i18nEl=btn.querySelector('[data-i18n]')";
+const SUGGESTION_BOOT_OLD = `document.querySelectorAll('.suggestion').forEach(btn=>{
+  btn.onclick=()=>{$('msg').value=btn.dataset.msg;send();};
+});`;
+const SUGGESTION_BOOT_NEW = `document.querySelectorAll('.suggestion').forEach(btn=>{
+  btn.onclick=()=>{
+    const i18nEl=btn.querySelector('[data-i18n]');
+    const key=i18nEl&&i18nEl.getAttribute('data-i18n');
+    const payload=(key&&typeof t==='function'?t(key):'')||(btn.dataset.msg||'').trim();
+    $('msg').value=payload;
+    if(typeof autoResize==='function')autoResize();
+    if(typeof updateSendBtn==='function')updateSendBtn();
+    void send().catch(err=>console.error('[suggestion] send failed',err));
+  };
+});`;
 
 const SLIM_CHAT_CHROME_MARKER = '/* lingtan-slim-chat-chrome';
 const SLIM_CHAT_CHROME_CSS = `
@@ -53,6 +71,23 @@ function main() {
   if (!fs.existsSync(INDEX) || !fs.existsSync(PANELS)) {
     console.warn('[lingtan-webui] hermes-webui/static missing — skip Lingtan UI patches');
     return;
+  }
+
+  if (fs.existsSync(BOOT)) {
+    let boot = fs.readFileSync(BOOT, 'utf8');
+    if (boot.includes(SUGGESTION_BOOT_MARKER)) {
+      console.log('[lingtan-webui] boot.js suggestion handler already patched — skip boot.js');
+    } else if (boot.includes(SUGGESTION_BOOT_OLD)) {
+      boot = boot.replace(SUGGESTION_BOOT_OLD, SUGGESTION_BOOT_NEW);
+      fs.writeFileSync(BOOT, boot, 'utf8');
+      console.log('[lingtan-webui] patched boot.js (localized suggestion send)');
+    } else {
+      console.warn(
+        '[lingtan-webui] boot.js: expected .suggestion one-liner not found — skip suggestion patch',
+      );
+    }
+  } else {
+    console.warn('[lingtan-webui] boot.js missing — skip suggestion patch');
   }
 
   let html = fs.readFileSync(INDEX, 'utf8');

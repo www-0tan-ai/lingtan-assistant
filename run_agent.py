@@ -85,6 +85,15 @@ def _lingtan_stored_prompt_is_legacy_hermes_snapshot(prompt: str) -> bool:
     return "hermes agent" in low or "nous research" in low
 
 
+def _lingtan_desktop_env() -> bool:
+    """True when the agent runs inside Lingtan Assistant (Electron sets this)."""
+    return str(os.environ.get("LINGTAN_BRANDING", "")).strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
 class _OpenAIProxy:
     """Module-level proxy that looks like ``openai.OpenAI`` but imports lazily."""
 
@@ -1488,12 +1497,22 @@ class AIAgent:
                                 _env_hint = _pcfg.api_key_env_vars[0]
                         except Exception:
                             pass
+                        if _lingtan_desktop_env():
+                            raise RuntimeError(
+                                f"当前配置使用提供方「{_explicit}」，但未检测到可用的 API 密钥。"
+                                "请打开左侧「设置」，在模型或提供方页面填写密钥并保存后再试。"
+                            )
                         raise RuntimeError(
                             f"Provider '{_explicit}' is set in config.yaml but no API key "
                             f"was found. Set the {_env_hint} environment "
                             f"variable, or switch to a different provider with `hermes model`."
                         )
                     # No provider configured — reject with a clear message.
+                    if _lingtan_desktop_env():
+                        raise RuntimeError(
+                            "未配置可用的语言模型。请打开左侧「设置」(Settings)，"
+                            "选择提供方、添加 API 密钥并选定模型后再发送消息。"
+                        )
                     raise RuntimeError(
                         "No LLM provider configured. Run `hermes model` to "
                         "select a provider, or run `hermes setup` for first-time "

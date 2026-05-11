@@ -505,7 +505,7 @@ async function main() {
             LINGTAN_NO_KEYS_YAML_BANNER.trimEnd(),
             'model:',
             '  provider: auto',
-            '  default: ""',
+            '  default: openai/gpt-5.4-mini',
             'onboarding:',
             '  seen:',
             '    busy_input_prompt: true',

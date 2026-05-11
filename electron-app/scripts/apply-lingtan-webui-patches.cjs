@@ -103,8 +103,46 @@ function patchAzureFoundryWebui() {
   }
 }
 
+/** Empty session/composer model → use model.default + HERMES_MODEL (matches CLI). */
+function patchResolveModelDefaultFromConfig() {
+  const configApi = path.join(REPO_ROOT, 'hermes-webui', 'api', 'config.py');
+  if (!fs.existsSync(configApi)) {
+    console.warn('[lingtan-webui] api/config.py missing — skip empty-model default fix');
+    return;
+  }
+  let text = fs.readFileSync(configApi, 'utf8');
+  if (
+    text.includes('get_effective_default_model()') &&
+    text.includes('Session/composer may persist an empty model')
+  ) {
+    console.log('[lingtan-webui] api/config.py empty-model → default already patched — skip');
+    return;
+  }
+  const old =
+    '    model_id = (model_id or "").strip()\n' +
+    '    if not model_id:\n' +
+    '        return model_id, config_provider, config_base_url\n';
+  const neu =
+    '    model_id = (model_id or "").strip()\n' +
+    '    if not model_id:\n' +
+    '        # Session/composer may persist an empty model — align with CLI by using\n' +
+    '        # model.default from config.yaml (and HERMES_MODEL / OPENAI_MODEL when set).\n' +
+    '        model_id = str(get_effective_default_model() or "").strip()\n' +
+    '    if not model_id:\n' +
+    '        return model_id, config_provider, config_base_url\n';
+  if (text.includes(old)) {
+    fs.writeFileSync(configApi, text.replace(old, neu), 'utf8');
+    console.log('[lingtan-webui] patched api/config.py (empty model → config default)');
+  } else {
+    console.warn(
+      '[lingtan-webui] api/config.py: resolve_model_provider empty-model block not found — skip default fix',
+    );
+  }
+}
+
 function main() {
   patchAzureFoundryWebui();
+  patchResolveModelDefaultFromConfig();
 
   if (fs.existsSync(STYLE)) {
     let css = fs.readFileSync(STYLE, 'utf8');

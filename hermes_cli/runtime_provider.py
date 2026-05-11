@@ -727,6 +727,29 @@ def _resolve_azure_foundry_runtime(
         )
 
     api_key = explicit_api_key
+    if not api_key and isinstance(model_cfg, dict):
+        for k in ("api_key", "api"):
+            raw = model_cfg.get(k)
+            if isinstance(raw, str):
+                key_text = raw.strip()
+                if not key_text:
+                    continue
+                if (
+                    key_text.startswith("${")
+                    and key_text.endswith("}")
+                    and len(key_text) > 3
+                ):
+                    api_key = os.getenv(key_text[2:-1], "").strip()
+                else:
+                    api_key = key_text
+                break
+    if not api_key and isinstance(model_cfg, dict):
+        for hint_key in ("key_env", "api_key_env"):
+            env_var = str(model_cfg.get(hint_key) or "").strip()
+            if env_var:
+                api_key = os.getenv(env_var, "").strip()
+                if api_key:
+                    break
     if not api_key:
         try:
             from hermes_cli.config import get_env_value
@@ -737,8 +760,9 @@ def _resolve_azure_foundry_runtime(
         api_key = os.getenv("AZURE_FOUNDRY_API_KEY", "").strip()
     if not api_key:
         raise AuthError(
-            "Azure Foundry requires an API key. Set AZURE_FOUNDRY_API_KEY in "
-            "~/.hermes/.env or run 'hermes model' to configure."
+            "Azure Foundry requires an API key. Set model.api_key or key_env in "
+            "config.yaml, set AZURE_FOUNDRY_API_KEY in ~/.hermes/.env, or run "
+            "'hermes model' to configure."
         )
 
     # Anthropic SDK appends /v1/messages itself, so strip any trailing /v1

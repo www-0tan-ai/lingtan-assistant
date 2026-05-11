@@ -1,0 +1,14 @@
+# Lingtan desktop seed — copied into packaged hermes-home when `npm run seed` runs.
+# Put your Azure Foundry API key in `api_key` below, or leave empty and use
+# AZURE_FOUNDRY_API_KEY in the environment / secrets.enc.
+# Do not commit real secrets to a public repository.
+model:
+  provider: azure-foundry
+  default: gpt-5.3-codex
+  base_url: https://www-0504-resource.services.ai.azure.com/api/projects/www-0504/openai/v1
+  api_key: ""
+
+onboarding:
+  seen:
+    busy_input_prompt: true
+    openclaw_residue_cleanup: true

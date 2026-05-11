@@ -421,13 +421,19 @@ function buildSecretsBundle() {
 }
 
 function readConfigYamlSanitized() {
+  // Bundled desktop default: prefer repo asset so you can pin model + api_key
+  // in one file. Remove assets/hermes-home/config.yaml to fall back to
+  // HERMES_HOME/config.yaml again.
+  const assetCfg = path.join(__dirname, '..', 'assets', 'hermes-home', 'config.yaml');
+  if (fs.existsSync(assetCfg)) {
+    console.log('[seed] hermes-home/config.yaml source: assets/hermes-home/config.yaml');
+    return fs.readFileSync(assetCfg, 'utf8');
+  }
   const cfgPath = path.join(HERMES_HOME, 'config.yaml');
   if (!fs.existsSync(cfgPath)) {
     return null;
   }
-  // We ship the user's config.yaml verbatim because it does not, by
-  // convention, contain secrets — secrets live in .env.  If you ever
-  // start storing keys in config.yaml, add a sanitizer here.
+  console.log('[seed] hermes-home/config.yaml source:', cfgPath);
   return fs.readFileSync(cfgPath, 'utf8');
 }
 

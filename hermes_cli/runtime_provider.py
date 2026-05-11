@@ -47,6 +47,12 @@ def _config_base_url_trustworthy_for_bare_custom(cfg_base_url: str, cfg_provider
     GitHub #14676: the model picker can select Custom while ``model.provider`` still reflects a
     previous provider. Reject non-loopback URLs unless the YAML provider is already ``custom``,
     so a stale OpenRouter/Z.ai base_url cannot hijack local ``custom`` sessions.
+
+    When ``model.provider`` is unset or ``auto``, there is no pinned prior provider in YAML —
+    a non-OpenRouter ``model.base_url`` is an explicit deploy endpoint (e.g. Lingtan Docker:
+    ``HERMES_DEFAULT_PROVIDER=custom`` for transport + Azure URL only in config). Without this,
+    resolution would ignore YAML and fall through to OpenRouter defaults unless ``HERMES_BASE_URL``
+    duplicated the same URL.
     """
     cfg_provider_norm = (cfg_provider or "").strip().lower()
     bu = (cfg_base_url or "").strip()
@@ -56,6 +62,8 @@ def _config_base_url_trustworthy_for_bare_custom(cfg_base_url: str, cfg_provider
         return True
     if base_url_host_matches(bu, "openrouter.ai"):
         return False
+    if cfg_provider_norm in {"", "auto"}:
+        return True
     return _loopback_hostname(base_url_hostname(bu))
 
 

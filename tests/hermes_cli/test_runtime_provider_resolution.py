@@ -990,6 +990,26 @@ def test_openrouter_runtime_custom_prefers_hermes_base_url_and_custom_api_key(mo
     assert out["api_key"] == "x" * 32
 
 
+def test_openrouter_runtime_custom_uses_yaml_base_url_when_provider_auto(monkeypatch):
+    """HERMES_DEFAULT_PROVIDER=custom + model.provider auto: YAML base_url without HERMES_BASE_URL."""
+    monkeypatch.delenv("HERMES_BASE_URL", raising=False)
+    monkeypatch.delenv("CUSTOM_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.setenv("CUSTOM_API_KEY", "k" * 32)
+    monkeypatch.setattr(
+        rp,
+        "_get_model_config",
+        lambda: {
+            "provider": "auto",
+            "base_url": "https://azure.example/openai/v1",
+        },
+    )
+    out = rp._resolve_openrouter_runtime(requested_provider="custom")
+    assert out["provider"] == "custom"
+    assert "azure.example" in out["base_url"]
+    assert out["api_key"] == "k" * 32
+
+
 # ── api_mode config override tests ──────────────────────────────────────
 
 

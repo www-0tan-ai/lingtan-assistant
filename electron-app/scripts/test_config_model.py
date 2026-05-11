@@ -12,6 +12,8 @@ Usage (from repo root):
 
 Exit code 0 if YAML parses and load_config succeeds; runtime resolution errors are printed
 but do not change exit code unless --strict is set.
+
+Use --skip-resolve to only check YAML + load_config (no API keys required).
 """
 
 from __future__ import annotations
@@ -82,6 +84,11 @@ def main() -> int:
         action="store_true",
         help="Do not delete temp HERMES_HOME; print its path",
     )
+    parser.add_argument(
+        "--skip-resolve",
+        action="store_true",
+        help="Skip resolve_runtime_provider() (no API keys needed; tests YAML + load_config only)",
+    )
     args = parser.parse_args()
 
     root = _repo_root()
@@ -145,6 +152,11 @@ def main() -> int:
                 if "key" in lk or "secret" in lk or "password" in lk:
                     v = "<redacted>" if v else v
                 print(f"  {k}: {v!r}")
+
+        if args.skip_resolve:
+            print("\n=== resolve_runtime_provider() ===")
+            print("  (skipped --skip-resolve)")
+            return 0
 
         print("\n=== resolve_runtime_provider() ===")
         from hermes_cli.runtime_provider import resolve_runtime_provider

@@ -1,12 +1,10 @@
 # Lingtan desktop seed — copied into packaged hermes-home when `npm run seed` runs.
-# Put your Azure Foundry API key in `api_key` below, or leave empty and use
-# AZURE_FOUNDRY_API_KEY in the environment / secrets.enc.
-# Do not commit real secrets to a public repository.
+# Main chat: DeepSeek direct API. Set DEEPSEEK_API_KEY in ~/.hermes/.env (bundled as secrets.enc).
+# Model IDs: deepseek-v4-pro | deepseek-v4-flash | deepseek-chat | deepseek-reasoner
+# (see hermes_cli/model_normalize.py).
 model:
-  provider: azure-foundry
-  default: gpt-5.3-codex
-  base_url: https://www-0504-resource.services.ai.azure.com/api/projects/www-0504/openai/v1
-  api_key: ""
+  provider: deepseek
+  default: deepseek-v4-pro
 
 onboarding:
   seen:

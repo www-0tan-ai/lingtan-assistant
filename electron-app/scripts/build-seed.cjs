@@ -5,8 +5,8 @@
  * Reads sensitive material from the developer machine's local Hermes
  * checkout and packages it for the .exe build:
  *
- *   ~/.hermes/.env                    -> seed/secrets.enc (encrypted, AES-256-GCM)
- *   assets/hermes-home/config.yaml    -> seed/hermes-home/config.yaml (plaintext, NO secrets)
+ *   ~/.hermes/.env          -> seed/secrets.enc      (encrypted, AES-256-GCM)
+ *   ~/.hermes/config.yaml   -> seed/hermes-home/config.yaml  (plaintext, NO secrets)
  *
  * Run as `npm run seed` (chained automatically before `npm run dist`).
  *
@@ -15,8 +15,9 @@
  *                                The password the end-user types to unlock
  *                                the in-app settings panel.  Only its
  *                                SHA-256 is bundled.
- *   HERMES_HOME                  source directory for ~/.env only (API keys);
- *                                config.yaml is always the bundled template above.
+ *   HERMES_HOME                  source of truth for .env / config.yaml
+ *                                if your local hermes lives somewhere
+ *                                other than ~/.hermes.
  */
 
 'use strict';
@@ -27,6 +28,7 @@ const os = require('os');
 const { spawnSync } = require('child_process');
 const { encrypt, sha256Hex } = require('../lib/crypto-utils.cjs');
 const {
+  LINGTAN_NO_KEYS_YAML_BANNER,
   neutralizeModelProviderWhenNoSecrets,
 } = require('../lib/lingtan-zero-keys-config.cjs');
 const { vendorPythonEmbed } = require('./vendor-python-embed.cjs');
@@ -39,14 +41,6 @@ const HERMES_HOME_SEED = path.join(SEED_DIR, 'hermes-home');
 const AGENT_SEED = path.join(SEED_DIR, 'hermes-agent');
 const PYDEPS_SEED = path.join(SEED_DIR, 'python-deps');
 const SECRETS_OUT = path.join(SEED_DIR, 'secrets.enc');
-/** Single source of truth for packaged config (not ~/.hermes/config.yaml). */
-const BUNDLED_HERMES_HOME_CONFIG = path.join(
-  __dirname,
-  '..',
-  'assets',
-  'hermes-home',
-  'config.yaml',
-);
 
 const SETTINGS_PASSWORD =
   process.env.LINGTAN_SETTINGS_PASSWORD || 'lingtan2026';
@@ -426,14 +420,15 @@ function buildSecretsBundle() {
   return { secrets, count: Object.keys(secrets).length };
 }
 
-function readBundledHermesHomeConfigYaml() {
-  if (!fs.existsSync(BUNDLED_HERMES_HOME_CONFIG)) {
-    throw new Error(
-      `[seed] missing bundled config template: ${BUNDLED_HERMES_HOME_CONFIG}\n` +
-        '  Create assets/hermes-home/config.yaml (tracked in git).',
-    );
+function readConfigYamlSanitized() {
+  const cfgPath = path.join(HERMES_HOME, 'config.yaml');
+  if (!fs.existsSync(cfgPath)) {
+    return null;
   }
-  return fs.readFileSync(BUNDLED_HERMES_HOME_CONFIG, 'utf8');
+  // We ship the user's config.yaml verbatim because it does not, by
+  // convention, contain secrets — secrets live in .env.  If you ever
+  // start storing keys in config.yaml, add a sanitizer here.
+  return fs.readFileSync(cfgPath, 'utf8');
 }
 
 async function main() {
@@ -488,19 +483,48 @@ async function main() {
   );
 
   // ── 2. plaintext seed for HERMES_HOME ──────────────────────────────
-  const cfg = readBundledHermesHomeConfigYaml();
+  const cfg = readConfigYamlSanitized();
   const outCfgPath = path.join(HERMES_HOME_SEED, 'config.yaml');
-  let cfgOut = cfg;
-  if (count === 0) {
-    cfgOut = neutralizeModelProviderWhenNoSecrets(cfg);
-    console.log(
-      '[seed] 0 bundled keys — adjusted config.yaml (root model.provider → auto if it was pinned)',
-    );
+  if (cfg !== null) {
+    let cfgOut = cfg;
+    if (count === 0) {
+      cfgOut = neutralizeModelProviderWhenNoSecrets(cfg);
+      console.log(
+        '[seed] 0 bundled keys — adjusted config.yaml (root model.provider → auto if it was pinned)',
+      );
+    }
+    fs.writeFileSync(outCfgPath, cfgOut, 'utf8');
+    console.log(`[seed] hermes-home/config.yaml written (${cfgOut.length} bytes)`);
+  } else {
+    // Fallback minimal config so the agent still has *something* to read.
+    // With no bundled keys, `openai` would fail the same way as azure-foundry;
+    // `auto` routes through the normal resolver and surfaces a generic prompt.
+    const fallback =
+      count === 0
+        ? [
+            LINGTAN_NO_KEYS_YAML_BANNER.trimEnd(),
+            'model:',
+            '  provider: auto',
+            '  default: openai/gpt-5.4-mini',
+            'onboarding:',
+            '  seen:',
+            '    busy_input_prompt: true',
+            '    openclaw_residue_cleanup: true',
+            '',
+          ].join('\n')
+        : [
+            'model:',
+            '  provider: openai',
+            '  default: gpt-4o-mini',
+            'onboarding:',
+            '  seen:',
+            '    busy_input_prompt: true',
+            '    openclaw_residue_cleanup: true',
+            '',
+          ].join('\n');
+    fs.writeFileSync(outCfgPath, fallback, 'utf8');
+    console.log('[seed] hermes-home/config.yaml: fallback minimal config used');
   }
-  fs.writeFileSync(outCfgPath, cfgOut, 'utf8');
-  console.log(
-    `[seed] hermes-home/config.yaml from ${path.relative(REPO_ROOT, BUNDLED_HERMES_HOME_CONFIG)} (${cfgOut.length} bytes)`,
-  );
 
   // Mark onboarding as already-seen so first-run flow is skipped — the
   // user "installs and just chats", per requirement #1.

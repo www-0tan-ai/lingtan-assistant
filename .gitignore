@@ -21,6 +21,8 @@ data/
 tmp/
 temp_vision_images/
 hermes-*/*
+!hermes-webui/
+!hermes-webui/**
 examples/
 tests/quick_test_dataset.jsonl
 tests/sample_dataset.jsonl
@@ -71,6 +73,5 @@ result
 website/static/api/skills-index.json
 models-dev-upstream/
 
-# Former git submodules — no longer tracked; clone separately if needed
-hermes-webui/
+# Optional front-end checkout (not part of core Hermes tree)
 zerocarbon-assistant-fronted/
